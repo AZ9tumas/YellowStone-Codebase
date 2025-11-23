@@ -12,11 +12,17 @@ local playerGui = player:WaitForChild("PlayerGui")
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local SpawnRemote: RemoteFunction = remotes:WaitForChild("Spawn")
 
+-- modules
+local modules = ReplicatedStorage:WaitForChild("Modules")
+local commonM = require(modules:WaitForChild("Common"))
+
 -- ui
 local ScreenGui = playerGui:WaitForChild("Menu")
 local SpawnButton: TextButton = ScreenGui:WaitForChild("SpawnButton")
 local statsFrame: Frame = ScreenGui:WaitForChild("Frame")
 local fadeFrame: Frame = ScreenGui:WaitForChild("Transition")
+
+local staminaValue: NumberValue = player:WaitForChild("PlayerStats"):WaitForChild("Stamina")
 
 local function createTween(fadein)
 	local info = TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
@@ -55,6 +61,11 @@ local function updateStats()
 	if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
 		statsFrame.Health.Text = "Health: " .. tostring(char.Humanoid.Health):match("^(%d+)")
 		statsFrame.Speed.Text = "Speed: " .. tostring(char.Humanoid.WalkSpeed):match("^(%d+)")
+		
+		local info = commonM.GetPlayerInfo(player)
+		if info.MaxStamina then
+			statsFrame.Stamina.Text = "Stamina: " .. tostring(staminaValue.Value * info.MaxStamina):match("^(%d+)")
+		end
 	end
 end
 

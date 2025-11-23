@@ -8,6 +8,7 @@ local RunService = game:GetService("RunService")
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local spawnRemote: RemoteFunction = remotes:WaitForChild("Spawn")
 local sprintRemote: RemoteFunction = remotes:WaitForChild("Sprint")
+local attackRemote: RemoteFunction = remotes:WaitForChild("Attack")
 
 -- modules
 local serverModules = script.Parent.Modules
@@ -18,6 +19,7 @@ local models = ServerStorage:WaitForChild("Models")
 
 spawnRemote.OnServerInvoke = remotesM.Morph
 sprintRemote.OnServerInvoke = remotesM.Sprint
+attackRemote.OnServerInvoke = remotesM.Attack
 
 Players.PlayerAdded:Connect(function(plr)
 	remotesM.InitStats(plr)

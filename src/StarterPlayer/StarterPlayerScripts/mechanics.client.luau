@@ -7,9 +7,14 @@ local player = Players.LocalPlayer
 local starterGui = player.PlayerGui
 local MechanicsUi = starterGui:WaitForChild("MechanicsUI")
 
+local ScreenGui = starterGui:WaitForChild("Menu")
+local statsFrame: Frame = ScreenGui:WaitForChild("Frame")
+local attackLabel: TextLabel = statsFrame:WaitForChild("Attack")
+
 -- remotes
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local SprintFunc: RemoteFunction = remotes:WaitForChild("Sprint")
+local AttackFunc: RemoteFunction = remotes:WaitForChild("Attack")
 
 local staminaProgress: Frame = MechanicsUi:WaitForChild("Background"):WaitForChild("Progress")
 local statsFolder = player:WaitForChild("PlayerStats")
@@ -31,7 +36,6 @@ end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
-	print(input.KeyCode)
 	
 	if input.KeyCode == Enum.KeyCode.LeftShift then
 		SprintFunc:InvokeServer(params.CurrentRunningStyle)
@@ -55,6 +59,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		
 		params.CurrentRunningStyle = if params.CurrentRunningStyle == "Sprint" then "Run" else "Sprint"
 		SprintLabel.Text = params.CurrentRunningStyle
+
+	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local newAttack = AttackFunc:InvokeServer()
+		attackLabel.Text = "Attack: " .. tostring(newAttack)
 	end
 end)
 

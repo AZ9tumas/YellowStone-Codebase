@@ -17,14 +17,12 @@ local spawnAssets = script.Parent.Parent:WaitForChild("SpawnAssets")
 -- assets
 local models = ServerStorage:WaitForChild("Models")
 
-local HEALTH_THRESHOLD_RATIO = 0.5
-
-local function healthSpeedMultiplier(humanoid: Humanoid?, speedReduction: number?): number
+local function healthSpeedMultiplier(humanoid: Humanoid?, speedReduction: number?, thresholdRatio: number?): number
 	if not humanoid or not speedReduction or speedReduction <= 0 then
 		return 1
 	end
 
-	local threshold = humanoid.MaxHealth * HEALTH_THRESHOLD_RATIO
+	local threshold = humanoid.MaxHealth * (thresholdRatio or 0.5)
 	if threshold <= 0 then
 		return 1
 	end
@@ -36,6 +34,27 @@ local function healthSpeedMultiplier(humanoid: Humanoid?, speedReduction: number
 
 	local ratio = math.clamp(health / threshold, 0, 1)
 	return 1 - speedReduction * (1 - ratio)
+end
+
+function module.Attack(plr: Player)
+	
+	local stuff = commonM.GetPlayerInfo(plr)
+	if not stuff or not plr.Character or not plr.Character:FindFirstChild("Humanoid") then return end
+
+	local humanoid = plr.Character.Humanoid
+	local totalCost = 0
+
+	if (humanoid.Health <= stuff.HealthPenaltyThreshold * humanoid.MaxHealth) then
+		totalCost += stuff.AttackHealthCost
+	end
+
+	if (plr.PlayerStats.Stamina.Value <= stuff.StaminaPenaltyThreshold) then
+		totalCost += stuff.AttackStaminaCost
+	end
+
+	print("Attack total cost:", totalCost, stuff.AttackDamage * (1 - totalCost))
+
+	return stuff.AttackDamage * (1 - totalCost)
 end
 
 function module.UpdateStamina(plr: Player, dt: number)
@@ -53,7 +72,7 @@ function module.UpdateStamina(plr: Player, dt: number)
 	local staminaDrainKey = stateType .. "StaminaDrain"
 	
 	local pdiff = (stuff.SprintSpeed - stuff.RunSpeed) / stuff.RunSpeed
-	local healthScale = healthSpeedMultiplier(humanoid, stuff.SpeedReductionHealth)
+	local healthScale = healthSpeedMultiplier(humanoid, stuff.MaxHealthSpeedPenalty, stuff.HealthPenaltyThreshold)
 
 	if stuff[staminaDrainKey] then
 		local drainAmount = stuff[staminaDrainKey] * dt
@@ -64,7 +83,7 @@ function module.UpdateStamina(plr: Player, dt: number)
 
 		local finalSpeed = reqSpeed
 
-		if plrStamina.Value < 0.5 then
+		if plrStamina.Value < stuff.StaminaPenaltyThreshold then
 			finalSpeed = trotSpeed + (reqSpeed - trotSpeed) * plrStamina.Value
 			if stateType == "Sprint" then
 				finalSpeed += trotSpeed * pdiff * (if plrStamina.Value > 0 then 1 else 0)
@@ -92,7 +111,7 @@ function module.Sprint(plr: Player, sprintType: string)
 	local trotSpeed = stuff.TrotSpeed
 	local plrStamina = plr.PlayerStats.Stamina
 	local humanoid = plr.Character and plr.Character:FindFirstChild("Humanoid")
-	local healthScale = healthSpeedMultiplier(humanoid, stuff.SpeedReductionHealth)
+	local healthScale = healthSpeedMultiplier(humanoid, stuff.MaxHealthSpeedPenalty, stuff.HealthPenaltyThreshold)
 
 	if (sprintType == "Run" or sprintType == "Sprint") and plrStamina.Value <= 0.5 then
 		plr.Character.Humanoid.WalkSpeed = (trotSpeed + (reqSpeed - trotSpeed) * plrStamina.Value) * healthScale
