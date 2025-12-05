@@ -62,7 +62,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 		local newAttack = AttackFunc:InvokeServer()
-		attackLabel.Text = "Attack: " .. tostring(newAttack)
+		attackLabel.Text = "Attack: " .. string.format("%.2f", newAttack)
 	end
 end)
 

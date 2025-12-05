@@ -36,6 +36,27 @@ local function healthSpeedMultiplier(humanoid: Humanoid?, speedReduction: number
 	return 1 - speedReduction * (1 - ratio)
 end
 
+local function accelerate(humanoid: Humanoid, targetSpeed: number, dt: number, acceleration: number, deceleration: number)
+	local currentSpeed = humanoid.WalkSpeed
+	local diff = targetSpeed - currentSpeed
+	
+	if math.abs(diff) < 0.1 then
+		humanoid.WalkSpeed = targetSpeed
+		return
+	end
+
+	local change = 0
+	if diff > 0 then
+		change = acceleration * dt
+		if change > diff then change = diff end
+	else
+		change = -deceleration * dt
+		if change < diff then change = diff end
+	end
+
+	humanoid.WalkSpeed = currentSpeed + change
+end
+
 function module.Attack(plr: Player)
 	
 	local stuff = commonM.GetPlayerInfo(plr)
@@ -45,11 +66,11 @@ function module.Attack(plr: Player)
 	local totalCost = 0
 
 	if (humanoid.Health <= stuff.HealthPenaltyThreshold * humanoid.MaxHealth) then
-		totalCost += stuff.AttackHealthCost
+		totalCost += stuff.HealthAttackCost * (1 - humanoid.Health / (stuff.HealthPenaltyThreshold * humanoid.MaxHealth))
 	end
 
 	if (plr.PlayerStats.Stamina.Value <= stuff.StaminaPenaltyThreshold) then
-		totalCost += stuff.AttackStaminaCost
+		totalCost += stuff.StaminaAttackCost * (1 - plr.PlayerStats.Stamina.Value / stuff.StaminaPenaltyThreshold)
 	end
 
 	print("Attack total cost:", totalCost, stuff.AttackDamage * (1 - totalCost))
@@ -90,7 +111,7 @@ function module.UpdateStamina(plr: Player, dt: number)
 			end
 		end
 
-		humanoid.WalkSpeed = finalSpeed * healthScale
+		accelerate(humanoid, finalSpeed * healthScale, dt, stuff.Acceleration, stuff.Deceleration)
 	else
 		local staminaGainKey = stateType .. "StaminaGain"
 		local gainAmount = (stuff[staminaGainKey] or 0) * dt
@@ -99,7 +120,7 @@ function module.UpdateStamina(plr: Player, dt: number)
 		local newStaminaPoints = math.min(currentStaminaPoints + gainAmount, stuff.MaxStamina)
 		plrStamina.Value = newStaminaPoints / stuff.MaxStamina
 
-		humanoid.WalkSpeed = reqSpeed * healthScale
+		accelerate(humanoid, reqSpeed * healthScale, dt, stuff.Acceleration, stuff.Deceleration)
 	end
 end
 
@@ -114,11 +135,12 @@ function module.Sprint(plr: Player, sprintType: string)
 	local healthScale = healthSpeedMultiplier(humanoid, stuff.MaxHealthSpeedPenalty, stuff.HealthPenaltyThreshold)
 
 	if (sprintType == "Run" or sprintType == "Sprint") and plrStamina.Value <= 0.5 then
-		plr.Character.Humanoid.WalkSpeed = (trotSpeed + (reqSpeed - trotSpeed) * plrStamina.Value) * healthScale
+		-- We don't set WalkSpeed directly here anymore, let the loop handle it via accelerate
+		-- But we can set the target state so the loop picks it up
 	end
 
 	plr:SetAttribute("State", sprintType)
-	plr.Character.Humanoid.WalkSpeed = reqSpeed * healthScale
+	-- Removed direct WalkSpeed setting to allow acceleration to take over in the next frame
 end
 
 function module.InitStats(plr: Player)

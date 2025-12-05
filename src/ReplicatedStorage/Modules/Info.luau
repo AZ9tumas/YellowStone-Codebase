@@ -13,13 +13,17 @@ return {
 			["TrotStaminaGain"] = 5,
 			["WalkStaminaGain"] = 10,
 
+			-- When low on health (below threshold), max reduction in speed (penalty).
 			["MaxHealthSpeedPenalty"] = 0.15,
 			["StaminaPenaltyThreshold"] = 0.5,
 			["HealthPenaltyThreshold"] = 0.5,
 
+			["Acceleration"] = 25,
+			["Deceleration"] = 10,
+
 			["AttackDamage"] = 10,
-			["AttackStaminaCost"] = 0.2,
-			["AttackHealthCost"] = 0.2
+			["StaminaAttackCost"] = 0.2,
+			["HealthAttackCost"] = 0.2
 		},
 		["Female"] = {
 			["WalkSpeed"] = 15,
@@ -37,9 +41,12 @@ return {
 			["MaxHealthSpeedPenalty"] = 0.15,
 			["HealthPenaltyThreshold"] = 0.5,
 
+			["Acceleration"] = 25,
+			["Deceleration"] = 10,
+
 			["AttackDamage"] = 10,
-			["AttackStaminaCost"] = 0.2,
-			["AttackHealthCost"] = 0.2
+			["StaminaAttackCost"] = 0.2,
+			["HealthAttackCost"] = 0.2
 		}
 	}
 }
