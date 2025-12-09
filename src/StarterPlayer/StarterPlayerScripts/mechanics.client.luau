@@ -36,6 +36,7 @@ local params = {
 	MomentumActive = false,
 	MomentumStartTime = 0,
 	MomentumDuration = 0.5, -- Duration of momentum effect in seconds
+	MomentumStrength = 1.0, -- Initial momentum strength multiplier
 }
 
 staminaValue.Changed:Connect(function()
@@ -53,11 +54,11 @@ function updateMovement()
 
 	-- Handle momentum deceleration
 	if params.MomentumActive then
-		local elapsed = tick() - params.MomentumStartTime
+		local elapsed = os.clock() - params.MomentumStartTime
 		local progress = math.min(elapsed / params.MomentumDuration, 1)
 		
 		-- Calculate deceleration factor (1 to 0 over duration)
-		local momentumFactor = 1 - progress
+		local momentumFactor = (1 - progress) * params.MomentumStrength
 		
 		if momentumFactor > 0.01 then
 			-- Apply momentum in the last facing direction with decreasing strength
@@ -90,7 +91,7 @@ function updateMovement()
 		if hum.WalkSpeed > 1 and params.CurrentState == "Idle" then
 			-- Start momentum deceleration
 			params.MomentumActive = true
-			params.MomentumStartTime = tick()
+			params.MomentumStartTime = os.clock()
 			Controls:Disable()
 		end
 
