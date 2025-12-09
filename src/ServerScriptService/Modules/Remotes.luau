@@ -136,10 +136,28 @@ function module.Sprint(plr: Player, sprintType: string)
 
 	if sprintType == "Idle" then
 		local lastdir = plr:GetAttribute("LastDirection") :: Vector3
-		print("Idle move restore:", lastdir)
-		if not lastdir then return end
-		
-		hum:Move(lastdir * 5)
+		if lastdir and lastdir.Magnitude > 0 then
+			-- Apply momentum deceleration over time
+			local momentumDuration = 0.5 -- Duration in seconds
+			local momentumStrength = 3 -- Scale factor for initial momentum strength
+			local startTime = os.clock()
+			
+			task.spawn(function()
+				while os.clock() - startTime < momentumDuration do
+					local elapsed = os.clock() - startTime
+					local progress = elapsed / momentumDuration
+					local momentumFactor = (1 - progress) * momentumStrength
+					
+					if hum and hum.Parent and plr:GetAttribute("State") == "Idle" then
+						hum:Move(lastdir * momentumFactor)
+					else
+						break -- Exit if humanoid is destroyed or state changed
+					end
+					
+					task.wait()
+				end
+			end)
+		end
 	end
 
 	plr:SetAttribute("LastDirection", hum.MoveDirection)
