@@ -17,7 +17,7 @@ local spawnAssets = script.Parent.Parent:WaitForChild("SpawnAssets")
 -- assets
 local models = ServerStorage:WaitForChild("Models")
 
-local function healthSpeedMultiplier(humanoid: Humanoid?, speedReduction: number?, thresholdRatio: number?): number
+local function healthBasedSpeedMultiplier(humanoid: Humanoid?, speedReduction: number?, thresholdRatio: number?): number
 	if not humanoid or not speedReduction or speedReduction <= 0 then
 		return 1
 	end
@@ -89,11 +89,10 @@ function module.UpdateStamina(plr: Player, dt: number)
 
 	local reqSpeed = stuff[stateType .. "Speed"]
 	local trotSpeed = stuff.TrotSpeed
-
 	local staminaDrainKey = stateType .. "StaminaDrain"
 	
 	local pdiff = (stuff.SprintSpeed - stuff.RunSpeed) / stuff.RunSpeed
-	local healthScale = healthSpeedMultiplier(humanoid, stuff.MaxHealthSpeedPenalty, stuff.HealthPenaltyThreshold)
+	local healthScale = healthBasedSpeedMultiplier(humanoid, stuff.MaxHealthSpeedPenalty, stuff.HealthPenaltyThreshold)
 
 	if stuff[staminaDrainKey] then
 		local drainAmount = stuff[staminaDrainKey] * dt
@@ -125,22 +124,26 @@ function module.UpdateStamina(plr: Player, dt: number)
 end
 
 function module.Sprint(plr: Player, sprintType: string)
+	-- State change func, main logic handled in UpdateStamina
+	local char = plr.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
 	local stuff = commonM.GetPlayerInfo(plr)
 	if not stuff then return end
-
-	local reqSpeed = stuff[sprintType .. "Speed"]
-	local trotSpeed = stuff.TrotSpeed
-	local plrStamina = plr.PlayerStats.Stamina
-	local humanoid = plr.Character and plr.Character:FindFirstChild("Humanoid")
-	local healthScale = healthSpeedMultiplier(humanoid, stuff.MaxHealthSpeedPenalty, stuff.HealthPenaltyThreshold)
-
-	if (sprintType == "Run" or sprintType == "Sprint") and plrStamina.Value <= 0.5 then
-		-- We don't set WalkSpeed directly here anymore, let the loop handle it via accelerate
-		-- But we can set the target state so the loop picks it up
-	end
+	if stuff[sprintType .. "Speed"] == nil then return end
 
 	plr:SetAttribute("State", sprintType)
-	-- Removed direct WalkSpeed setting to allow acceleration to take over in the next frame
+
+	if sprintType == "Idle" then
+		local lastdir = plr:GetAttribute("LastDirection") :: Vector3
+		print("Idle move restore:", lastdir)
+		if not lastdir then return end
+		
+		hum:Move(lastdir * 5)
+	end
+
+	plr:SetAttribute("LastDirection", hum.MoveDirection)
+	return true
 end
 
 function module.InitStats(plr: Player)

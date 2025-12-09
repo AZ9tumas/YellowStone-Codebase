@@ -49,9 +49,16 @@ SpawnButton.MouseButton1Down:Connect(function()
 	workspace.CurrentCamera.CameraSubject = player.Character:WaitForChild("HumanoidRootPart")
 	
 	-- load
+	local len = #player.Character:GetDescendants()
+	SpawnButton.Text = "Loading... 0/0"
+	local c = 0
+	
 	ContentProvider:PreloadAsync(player.Character:GetDescendants(), function(a, b)
-		print(a, b)
+		c += 1
+		SpawnButton.Text = "Loading... " .. tostring(c) .. "/" .. tostring(len)
 	end)
+
+	SpawnButton.Text = "SPAWN"
 	
 	task.wait()
 	createTween(false)

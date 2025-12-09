@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local starterGui = player.PlayerGui
@@ -23,10 +24,15 @@ local MechanicToggleFrame = MechanicsUi:WaitForChild("MechanicToggleFrame")
 local WalkLabel: TextLabel = MechanicToggleFrame:WaitForChild("Walk")
 local SprintLabel: TextLabel = MechanicToggleFrame:WaitForChild("Sprint")
 
+-- Modules
+local PlayerModule = require(player.PlayerScripts:WaitForChild("PlayerModule"))
+local Controls = PlayerModule:GetControls()
+
 local params = {
 	CurrentWalkingStyle = "Walk",
 	CurrentRunningStyle = "Sprint",
-	CurrentState = "Walk"
+	CurrentState = "Idle",
+	CurrentFacingDirection = Vector3.new(0, 0, 0),
 }
 
 staminaValue.Changed:Connect(function()
@@ -34,14 +40,41 @@ staminaValue.Changed:Connect(function()
 	TweenService:Create(staminaProgress, tw, {Size = UDim2.new(1, 0, staminaValue.Value, 0)}):Play()
 end)
 
+function updateMovement()
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+	local moveVector = Controls:GetMoveVector()
+
+	local laststate = params.CurrentState
+
+	if moveVector.Magnitude > 0 then
+		params.CurrentState = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and params.CurrentRunningStyle or params.CurrentWalkingStyle
+		params.CurrentFacingDirection = hum.MoveDirection
+	else
+		params.CurrentState = "Idle"
+	end
+
+	-- check for change
+	if laststate ~= params.CurrentState then
+		if hum.WalkSpeed > 1 and params.CurrentState == "Idle" then
+			Controls:Disable()
+			task.wait(0.1)
+			
+			local lastdir = player:GetAttribute("LastDirection") :: Vector3
+			hum:Move(lastdir or params.CurrentFacingDirection)
+			print("Moving to", lastdir or params.CurrentFacingDirection)
+		end
+
+		SprintFunc:InvokeServer(params.CurrentState)
+		Controls:Enable()
+	end
+end
+
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
-	
-	if input.KeyCode == Enum.KeyCode.LeftShift then
-		SprintFunc:InvokeServer(params.CurrentRunningStyle)
-		params.CurrentState = params.CurrentRunningStyle
-		
-	elseif input.KeyCode == Enum.KeyCode.Z then
+
+	if input.KeyCode == Enum.KeyCode.Z then
 		
 		local oldState = params.CurrentWalkingStyle
 		params.CurrentWalkingStyle = if params.CurrentWalkingStyle == "Walk" then "Trot" else "Walk"
@@ -66,11 +99,4 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-
-	if input.KeyCode == Enum.KeyCode.LeftShift then
-		SprintFunc:InvokeServer(params.CurrentWalkingStyle)
-		params.CurrentState = params.CurrentWalkingStyle
-	end
-end)
+RunService.Heartbeat:Connect(updateMovement)

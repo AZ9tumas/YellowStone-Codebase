@@ -1,6 +1,7 @@
 return {
 	["Horsie"] = {
 		["Male"] = {
+			["IdleSpeed"] = 0,
 			["WalkSpeed"] = 15,
 			["TrotSpeed"] = 28,
 			["RunSpeed"] = 42,
@@ -12,6 +13,7 @@ return {
 
 			["TrotStaminaGain"] = 5,
 			["WalkStaminaGain"] = 10,
+			["IdleStaminaGain"] = 15,
 
 			-- When low on health (below threshold), max reduction in speed (penalty).
 			["MaxHealthSpeedPenalty"] = 0.15,
@@ -26,6 +28,7 @@ return {
 			["HealthAttackCost"] = 0.2
 		},
 		["Female"] = {
+			["IdleSpeed"] = 0,
 			["WalkSpeed"] = 15,
 			["TrotSpeed"] = 28,
 			["RunSpeed"] = 40,
@@ -37,6 +40,7 @@ return {
 
 			["TrotStaminaGain"] = 6,
 			["WalkStaminaGain"] = 12,
+			["IdleStaminaGain"] = 18,
 
 			["MaxHealthSpeedPenalty"] = 0.15,
 			["HealthPenaltyThreshold"] = 0.5,
