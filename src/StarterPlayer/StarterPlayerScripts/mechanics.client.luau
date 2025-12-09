@@ -33,6 +33,9 @@ local params = {
 	CurrentRunningStyle = "Sprint",
 	CurrentState = "Idle",
 	CurrentFacingDirection = Vector3.new(0, 0, 0),
+	MomentumActive = false,
+	MomentumStartTime = 0,
+	MomentumDuration = 0.5, -- Duration of momentum effect in seconds
 }
 
 staminaValue.Changed:Connect(function()
@@ -48,9 +51,36 @@ function updateMovement()
 
 	local laststate = params.CurrentState
 
+	-- Handle momentum deceleration
+	if params.MomentumActive then
+		local elapsed = tick() - params.MomentumStartTime
+		local progress = math.min(elapsed / params.MomentumDuration, 1)
+		
+		-- Calculate deceleration factor (1 to 0 over duration)
+		local momentumFactor = 1 - progress
+		
+		if momentumFactor > 0.01 then
+			-- Apply momentum in the last facing direction with decreasing strength
+			local momentumDirection = params.CurrentFacingDirection
+			if momentumDirection.Magnitude > 0 then
+				hum:Move(momentumDirection * momentumFactor)
+			end
+		else
+			-- Momentum complete
+			params.MomentumActive = false
+			Controls:Enable()
+		end
+	end
+
 	if moveVector.Magnitude > 0 then
 		params.CurrentState = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and params.CurrentRunningStyle or params.CurrentWalkingStyle
 		params.CurrentFacingDirection = hum.MoveDirection
+		
+		-- Cancel momentum if player starts moving again
+		if params.MomentumActive then
+			params.MomentumActive = false
+			Controls:Enable()
+		end
 	else
 		params.CurrentState = "Idle"
 	end
@@ -58,16 +88,18 @@ function updateMovement()
 	-- check for change
 	if laststate ~= params.CurrentState then
 		if hum.WalkSpeed > 1 and params.CurrentState == "Idle" then
+			-- Start momentum deceleration
+			params.MomentumActive = true
+			params.MomentumStartTime = tick()
 			Controls:Disable()
-			task.wait(0.1)
-			
-			local lastdir = player:GetAttribute("LastDirection") :: Vector3
-			hum:Move(lastdir or params.CurrentFacingDirection)
-			print("Moving to", lastdir or params.CurrentFacingDirection)
 		end
 
 		SprintFunc:InvokeServer(params.CurrentState)
-		Controls:Enable()
+		
+		-- Only enable controls if not in momentum
+		if not params.MomentumActive then
+			Controls:Enable()
+		end
 	end
 end
 
