@@ -33,10 +33,11 @@ local params = {
 	CurrentRunningStyle = "Sprint",
 	CurrentState = "Idle",
 	CurrentFacingDirection = Vector3.new(0, 0, 0),
+
 	MomentumActive = false,
 	MomentumStartTime = 0,
 	MomentumDuration = 0.5, -- Duration of momentum effect in seconds
-	MomentumStrength = 1.0, -- Initial momentum strength multiplier
+	MomentumStrength = 2, -- Initial momentum strength multiplier
 }
 
 staminaValue.Changed:Connect(function()
@@ -69,7 +70,7 @@ function updateMovement()
 		else
 			-- Momentum complete
 			params.MomentumActive = false
-			Controls:Enable()
+			--Controls:Enable()
 		end
 	end
 
@@ -79,8 +80,8 @@ function updateMovement()
 		
 		-- Cancel momentum if player starts moving again
 		if params.MomentumActive then
-			params.MomentumActive = false
-			Controls:Enable()
+			--params.MomentumActive = false
+			--Controls:Enable()
 		end
 	else
 		params.CurrentState = "Idle"
@@ -92,14 +93,14 @@ function updateMovement()
 			-- Start momentum deceleration
 			params.MomentumActive = true
 			params.MomentumStartTime = os.clock()
-			Controls:Disable()
+			--Controls:Disable()
 		end
 
 		SprintFunc:InvokeServer(params.CurrentState)
 		
 		-- Only enable controls if not in momentum
 		if not params.MomentumActive then
-			Controls:Enable()
+			--Controls:Enable()
 		end
 	end
 end
@@ -132,4 +133,4 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
-RunService.Heartbeat:Connect(updateMovement)
+RunService:BindToRenderStep("MechanicMovement", Enum.RenderPriority.Character.Value + 1, updateMovement)

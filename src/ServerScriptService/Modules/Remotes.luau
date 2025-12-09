@@ -36,7 +36,7 @@ local function healthBasedSpeedMultiplier(humanoid: Humanoid?, speedReduction: n
 	return 1 - speedReduction * (1 - ratio)
 end
 
-local function accelerate(humanoid: Humanoid, targetSpeed: number, dt: number, acceleration: number, deceleration: number)
+local function accelerate(plr: Player, humanoid: Humanoid, targetSpeed: number, dt: number, acceleration: number, deceleration: number)
 	local currentSpeed = humanoid.WalkSpeed
 	local diff = targetSpeed - currentSpeed
 	
@@ -94,6 +94,27 @@ function module.UpdateStamina(plr: Player, dt: number)
 	local pdiff = (stuff.SprintSpeed - stuff.RunSpeed) / stuff.RunSpeed
 	local healthScale = healthBasedSpeedMultiplier(humanoid, stuff.MaxHealthSpeedPenalty, stuff.HealthPenaltyThreshold)
 
+	--[[
+		Possible states: Idle -> Walk / Trot -> Run / Sprint : (min / max)
+
+		On drain states (Run, Sprint), reduce stamina (based on provided drain rates) and adjust speed
+		if stamina is below threshold.
+		In case the player is sprinting (and not running), apply an extra speed boost which is 
+		equal to trotspeed * pdiff (percentage difference between Run and Sprint speeds).
+		When stamina is 0, it will be equal to trotspeed.
+
+		On gain states, increase stamina (based on provided gain rates) and set speed to requested speed.
+		
+		For acceleration and deceleration, we directly use provided values, except
+		when it is for Idle, we try to decelerate to zero almost instantly (high deceleration).
+	]]
+
+	local finalDeceleration = stuff.Deceleration
+	if stateType == "Idle" then
+		--finalDeceleration = stuff.IdleDeceleration or stuff.SprintSpeed * 1.5
+		finalDeceleration = humanoid.WalkSpeed * 1.5
+	end
+
 	if stuff[staminaDrainKey] then
 		local drainAmount = stuff[staminaDrainKey] * dt
 
@@ -110,7 +131,7 @@ function module.UpdateStamina(plr: Player, dt: number)
 			end
 		end
 
-		accelerate(humanoid, finalSpeed * healthScale, dt, stuff.Acceleration, stuff.Deceleration)
+		accelerate(plr, humanoid, finalSpeed * healthScale, dt, stuff.Acceleration, finalDeceleration)
 	else
 		local staminaGainKey = stateType .. "StaminaGain"
 		local gainAmount = (stuff[staminaGainKey] or 0) * dt
@@ -119,7 +140,7 @@ function module.UpdateStamina(plr: Player, dt: number)
 		local newStaminaPoints = math.min(currentStaminaPoints + gainAmount, stuff.MaxStamina)
 		plrStamina.Value = newStaminaPoints / stuff.MaxStamina
 
-		accelerate(humanoid, reqSpeed * healthScale, dt, stuff.Acceleration, stuff.Deceleration)
+		accelerate(plr, humanoid, reqSpeed * healthScale, dt, stuff.Acceleration, finalDeceleration)
 	end
 end
 
@@ -149,7 +170,7 @@ function module.Sprint(plr: Player, sprintType: string)
 					local momentumFactor = (1 - progress) * momentumStrength
 					
 					if hum and hum.Parent and plr:GetAttribute("State") == "Idle" then
-						hum:Move(lastdir * momentumFactor)
+						--hum:Move(lastdir * momentumFactor)
 					else
 						break -- Exit if humanoid is destroyed or state changed
 					end

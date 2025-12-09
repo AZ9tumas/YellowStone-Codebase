@@ -23,6 +23,9 @@ return {
 			["Acceleration"] = 25,
 			["Deceleration"] = 10,
 
+			-- Ignore for now
+			--["IdleDeceleration"] = 75, -- Twice the highest speed possible
+
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
 			["HealthAttackCost"] = 0.2
@@ -47,6 +50,9 @@ return {
 
 			["Acceleration"] = 25,
 			["Deceleration"] = 10,
+
+			-- Ignore for now
+			--["IdleDeceleration"] = 75, -- Twice the highest speed possible
 
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
