@@ -4,24 +4,31 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 local RunService = game:GetService("RunService")
 
--- remotes
-local remotes = ReplicatedStorage:WaitForChild("Remotes")
-local spawnRemote: RemoteFunction = remotes:WaitForChild("Spawn")
-local sprintRemote: RemoteFunction = remotes:WaitForChild("Sprint")
-local attackRemote: RemoteFunction = remotes:WaitForChild("Attack")
-
 -- modules
 local serverModules = script.Parent.Modules
+local repModules = ReplicatedStorage:WaitForChild("Modules")
 local remotesM = require(serverModules.Remotes)
+local packets = require(repModules.Packets)
 
 -- assets
 local models = ServerStorage:WaitForChild("Models")
 
-spawnRemote.OnServerInvoke = remotesM.Morph
-sprintRemote.OnServerInvoke = remotesM.Sprint
-attackRemote.OnServerInvoke = remotesM.Attack
+packets.spawn.listen(function(data, player)
+	remotesM.Morph(player, data.charName, data.gender)
+end)
+
+packets.sprint.listen(function(data, player)
+	print(remotesM.Sprint(player, data.sprintType))
+end)
+
+packets.attack.listen(function(_, player)
+	remotesM.Attack(player)
+end)
 
 Players.PlayerAdded:Connect(function(plr)
+	--plr.DevComputerMovementMode = Enum.DevComputerMovementMode.Scriptable
+	--plr.DevTouchMovementMode = Enum.DevTouchMovementMode.Scriptable
+
 	remotesM.InitStats(plr)
 end)
 

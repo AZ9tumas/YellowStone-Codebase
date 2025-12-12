@@ -10,11 +10,12 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 -- remotes
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
-local SpawnRemote: RemoteFunction = remotes:WaitForChild("Spawn")
 
 -- modules
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local commonM = require(modules:WaitForChild("Common"))
+local packets = require(modules:WaitForChild("Packets"))
+local spawnPacket = packets.spawn
 
 -- ui
 local ScreenGui = playerGui:WaitForChild("Menu")
@@ -41,19 +42,23 @@ SpawnButton.MouseButton1Down:Connect(function()
 	createTween(true)
 	
 	task.wait(1)
-	local success, errmsg = SpawnRemote:InvokeServer("Horsie", "Male")
-	if not success then
-		return error(errmsg)
-	end
+	-- send packet here
+	spawnPacket.send({
+		charName = "Horsie",
+		gender = "Male"
+	})
 	
-	workspace.CurrentCamera.CameraSubject = player.Character:WaitForChild("HumanoidRootPart")
+	-- Wait for character to be replaced
+	local newChar = player.CharacterAdded:Wait()
+	workspace.CurrentCamera.CameraSubject = newChar:WaitForChild("HumanoidRootPart")
 	
 	-- load
-	local len = #player.Character:GetDescendants()
-	SpawnButton.Text = "Loading... 0/0"
+	local descendants = newChar:GetDescendants()
+	local len = #descendants
+	SpawnButton.Text = "Loading... 0/" .. tostring(len)
 	local c = 0
 	
-	ContentProvider:PreloadAsync(player.Character:GetDescendants(), function(a, b)
+	ContentProvider:PreloadAsync(descendants, function(a, b)
 		c += 1
 		SpawnButton.Text = "Loading... " .. tostring(c) .. "/" .. tostring(len)
 	end)
@@ -66,8 +71,15 @@ end)
 
 local function updateStats()
 	if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
+		local vel = Vector3.zero.Magnitude
+		local hmr = char:FindFirstChild("HumanoidRootPart")
+		if not hmr then return end
+		local lv = hmr:FindFirstChild("LinearVelocity")
+		if lv then
+			vel = lv.VelocityConstraintMode == Enum.VelocityConstraintMode.Plane and lv.PlaneVelocity.Magnitude or lv.VectorVelocity.Magnitude
+		end
 		statsFrame.Health.Text = "Health: " .. tostring(char.Humanoid.Health):match("^(%d+)")
-		statsFrame.Speed.Text = "Speed: " .. tostring(char.Humanoid.WalkSpeed):match("^(%d+)")
+		statsFrame.Speed.Text = "Speed: " .. tostring(vel):match("^(%d+)")
 		
 		local info = commonM.GetPlayerInfo(player)
 		if info.MaxStamina then

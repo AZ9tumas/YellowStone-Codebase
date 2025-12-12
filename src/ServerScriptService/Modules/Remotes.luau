@@ -4,18 +4,18 @@ local module = {}
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local InitClientScripts: RemoteEvent = Remotes:WaitForChild("InitClientScripts")
-
 -- modules
 local repModules = ReplicatedStorage:WaitForChild("Modules")
 local commonM = require(repModules:WaitForChild("Common"))
 local infoM = require(repModules:WaitForChild("Info"))
+local packets = require(repModules:WaitForChild("Packets"))
 
+local initClientScripts = packets.initClientScripts
 local spawnAssets = script.Parent.Parent:WaitForChild("SpawnAssets")
 
 -- assets
 local models = ServerStorage:WaitForChild("Models")
+local physicsControllers = ServerStorage:WaitForChild("Assets"):WaitForChild("PhysicsControllers")
 
 local function healthBasedSpeedMultiplier(humanoid: Humanoid?, speedReduction: number?, thresholdRatio: number?): number
 	if not humanoid or not speedReduction or speedReduction <= 0 then
@@ -75,7 +75,8 @@ function module.Attack(plr: Player)
 
 	print("Attack total cost:", totalCost, stuff.AttackDamage * (1 - totalCost))
 
-	return stuff.AttackDamage * (1 - totalCost)
+	local finalDamage = stuff.AttackDamage * (1 - totalCost)
+	packets.attackReturn.sendTo(finalDamage, plr)
 end
 
 function module.UpdateStamina(plr: Player, dt: number)
@@ -146,42 +147,18 @@ end
 
 function module.Sprint(plr: Player, sprintType: string)
 	-- State change func, main logic handled in UpdateStamina
+
+	print(plr, sprintType)
 	local char = plr.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if not hum then return end
+	local hmr = char and char:FindFirstChild("HumanoidRootPart")
+	if not hum or not hmr then return end
+	
 	local stuff = commonM.GetPlayerInfo(plr)
 	if not stuff then return end
 	if stuff[sprintType .. "Speed"] == nil then return end
 
 	plr:SetAttribute("State", sprintType)
-
-	if sprintType == "Idle" then
-		local lastdir = plr:GetAttribute("LastDirection") :: Vector3
-		if lastdir and lastdir.Magnitude > 0 then
-			-- Apply momentum deceleration over time
-			local momentumDuration = 0.5 -- Duration in seconds
-			local momentumStrength = 3 -- Scale factor for initial momentum strength
-			local startTime = os.clock()
-			
-			task.spawn(function()
-				while os.clock() - startTime < momentumDuration do
-					local elapsed = os.clock() - startTime
-					local progress = elapsed / momentumDuration
-					local momentumFactor = (1 - progress) * momentumStrength
-					
-					if hum and hum.Parent and plr:GetAttribute("State") == "Idle" then
-						--hum:Move(lastdir * momentumFactor)
-					else
-						break -- Exit if humanoid is destroyed or state changed
-					end
-					
-					task.wait()
-				end
-			end)
-		end
-	end
-
-	plr:SetAttribute("LastDirection", hum.MoveDirection)
 	return true
 end
 
@@ -208,6 +185,38 @@ function module.InitChar(plr: Player, charName: string, gender: string)
 	print("Set default walkspeed to", charInfo.WalkSpeed)
 end
 
+function module.AddBodyMovers(plr: Player)
+	local char = plr.Character
+	if not char then return end
+	
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	
+	local lv = physicsControllers:FindFirstChild("LinearVelocity")
+	local ao = physicsControllers:FindFirstChild("AlignOrientation")
+
+	local a1 = Instance.new("Attachment", hrp)
+	a1.Name = "PhysicsAttachment"
+	
+	if lv then
+		local newLv = lv:Clone()
+		newLv.VectorVelocity = Vector3.zero
+		newLv.Parent = hrp
+		newLv.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+		newLv.PlaneVelocity = Vector2.new(0, 0)
+		newLv.Attachment0 = a1
+		newLv.Enabled = false
+	end
+	
+	if ao then
+		local newAo = ao:Clone()
+		newAo.CFrame = CFrame.lookAt(Vector3.zero, hrp.CFrame.LookVector)
+		newAo.Parent = hrp
+		newAo.Attachment0 = a1
+		newAo.Enabled = false
+	end
+end
+
 function module.Morph(plr: Player, charName: string, gender: string)
 	local modelsUnderGender = models:FindFirstChild(gender)
 	if not modelsUnderGender then return false, "No such gender" end
@@ -229,8 +238,10 @@ function module.Morph(plr: Player, charName: string, gender: string)
 	module.InitChar(plr, charName, gender)
 	plr:SetAttribute("CharacterName", charName)
 	plr:SetAttribute("Gender", gender)
-	plr:SetAttribute("State", "Walk")
+	plr:SetAttribute("State", "Idle")
 	
+	module.AddBodyMovers(plr)
+
 	-- setup scripts and spawn assets
 	local sc = {}
 	for _, v in pairs(spawnAssets:GetChildren()) do
@@ -239,14 +250,14 @@ function module.Morph(plr: Player, charName: string, gender: string)
 		
 		if v:IsA("ScreenGui") then
 			pr = plr.PlayerGui
-		elseif v:IsA("Script") then 
+		elseif v:IsA("Script") then
 			table.insert(sc, cl)
 		end
 		
 		cl.Parent = pr
 	end
 	
-	InitClientScripts:FireClient(plr)
+	initClientScripts.sendTo({}, plr)
 	
 	-- server scripts
 	for _, v in pairs(sc) do
@@ -257,4 +268,3 @@ function module.Morph(plr: Player, charName: string, gender: string)
 end
 
 return module
-

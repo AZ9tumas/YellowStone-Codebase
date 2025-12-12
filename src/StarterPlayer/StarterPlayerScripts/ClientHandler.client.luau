@@ -1,9 +1,9 @@
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local modules = ReplicatedStorage:WaitForChild("Modules")
+local packets = require(modules:WaitForChild("Packets"))
+local initClientScripts = packets.initClientScripts
 
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local InitClientScripts: RemoteEvent = Remotes:WaitForChild("InitClientScripts")
-
-InitClientScripts.OnClientEvent:Connect(function()
+initClientScripts.listen(function(data)
 	script.Parent.mechanics.Enabled = true
 end)
