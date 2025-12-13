@@ -2,9 +2,10 @@
 
 The procedural banking effect simulates centripetal force by calculating the turning delta relative to the character's forward direction.
 
-1. **Local Space Conversion**: The global move vector $`\vec{v}_{world}`$ is transformed into the character's local object space relative to the RootPart's Coordinate Frame $`C_{hrp}`$.
-$$\vec{v}_{local}$$ = hrpCframe.vectorToObjectSpace(moveVector)
-Here, moveVector = ControlModule:GetMoveVector()
+1. **Local Space Conversion**: The global move vector $`\vec{v}_{world}`$ is transformed into the character's local object space relative to the RootPart's Coordinate Frame $`C_{hrp}`$. \\
+$$\vec{v}_{local}$$ = `hrpCframe.vectorToObjectSpace(moveVector)`
+\\
+Here, `moveVector = ControlModule:GetMoveVector()`
 
 2. **Target Angle Calculation**: The lateral component $x_{local}$ determines the target roll angle $\phi_{target}$. If the character moves right relative to its facing direction, it banks right.
 ```math
