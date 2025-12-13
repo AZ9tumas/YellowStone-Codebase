@@ -78,6 +78,8 @@ local function updateStats()
 		if lv then
 			vel = lv.VelocityConstraintMode == Enum.VelocityConstraintMode.Plane and lv.PlaneVelocity.Magnitude or lv.VectorVelocity.Magnitude
 		end
+
+		vel = char.Humanoid.WalkSpeed
 		statsFrame.Health.Text = "Health: " .. tostring(char.Humanoid.Health):match("^(%d+)")
 		statsFrame.Speed.Text = "Speed: " .. tostring(vel):match("^(%d+)")
 		

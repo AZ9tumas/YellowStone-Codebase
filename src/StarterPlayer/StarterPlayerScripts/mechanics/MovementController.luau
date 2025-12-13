@@ -9,6 +9,7 @@ function MovementController.new(player, camera, packets)
 	self.Player = player
 	self.Camera = camera
 	self.Packets = packets
+	self.ControlModule = require(player.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
 	
 	self.Params = {
 		CurrentWalkingStyle = "Walk",
@@ -87,10 +88,11 @@ function MovementController:UpdateMovement()
 	local char = self.Player.Character
 	if not char then return end
 	local hum: Humanoid = char:FindFirstChild("Humanoid")
-	if not hum then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hum or not hrp then return end
 	
 	local params = self.Params
-	local moveVector = params.MoveDirection
+	local moveVector = self.ControlModule:GetMoveVector()
 	local laststate = params.CurrentState
 
 	-- Momentum
@@ -109,17 +111,16 @@ function MovementController:UpdateMovement()
 		end
 	end
 
-	if hum.MoveDirection.Magnitude ~= 0 then
+	if moveVector.Magnitude ~= 0 then
 		params.CurrentState = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and params.CurrentRunningStyle or params.CurrentWalkingStyle
-		if char:FindFirstChild("HumanoidRootPart") then
-			params.CurrentFacingDirection = char.HumanoidRootPart.CFrame.LookVector
-		end
+		params.CurrentFacingDirection = hum.MoveDirection.Unit
 	else
 		params.CurrentState = "Idle"
+		params.CurrentFacingDirection = hrp.CFrame.LookVector
 	end
 
 	if laststate ~= params.CurrentState then
-		if hum.WalkSpeed > 1 and params.CurrentState == "Idle" then
+		if hum.WalkSpeed > 0 and params.CurrentState == "Idle" then
 			params.MomentumActive = true
 			params.MomentumStartTime = os.clock()
 		end
@@ -158,9 +159,13 @@ function MovementController:UpdatePhysicsControllers(dt)
 	lv.PlaneVelocity = movedir * hum.WalkSpeed
 end
 
+function MovementController:TiltCharacter()
+
+end
+
 function MovementController:Update(dt)
 	self:UpdateMovement()
-	self:UpdatePhysicsControllers(dt)
+	--self:UpdatePhysicsControllers(dt)
 end
 
 function MovementController:ToggleWalkingStyle()

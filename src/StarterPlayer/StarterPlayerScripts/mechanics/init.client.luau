@@ -61,15 +61,18 @@ RunService:BindToRenderStep("MechanicMovement", Enum.RenderPriority.Character.Va
 	controller:Update(dt)
 end)
 
-ContextActionService:BindAction("MoveForward", function(...) controller:UpdateMoveDir(...) end, true, Enum.KeyCode.W, Enum.KeyCode.Up)
-ContextActionService:BindAction("MoveBackward", function(...) controller:UpdateMoveDir(...) end, true, Enum.KeyCode.S, Enum.KeyCode.Down)
-ContextActionService:BindAction("RotateLeft", function(...) controller:HandleRotation(...) end, true, Enum.KeyCode.A, Enum.KeyCode.Left)
-ContextActionService:BindAction("RotateRight", function(...) controller:HandleRotation(...) end, true, Enum.KeyCode.D, Enum.KeyCode.Right)
+local function setupBindings()
+	ContextActionService:BindAction("MoveForward", function(...) controller:UpdateMoveDir(...) end, true, Enum.KeyCode.W, Enum.KeyCode.Up)
+	ContextActionService:BindAction("MoveBackward", function(...) controller:UpdateMoveDir(...) end, true, Enum.KeyCode.S, Enum.KeyCode.Down)
+	ContextActionService:BindAction("RotateLeft", function(...) controller:HandleRotation(...) end, true, Enum.KeyCode.A, Enum.KeyCode.Left)
+	ContextActionService:BindAction("RotateRight", function(...) controller:HandleRotation(...) end, true, Enum.KeyCode.D, Enum.KeyCode.Right)
 
-ContextActionService:SetTitle("MoveForward", "Forward")
-ContextActionService:SetTitle("MoveBackward", "Backward")
-ContextActionService:SetTitle("RotateLeft", "Left")
-ContextActionService:SetTitle("RotateRight", "Right")
+	ContextActionService:SetTitle("MoveForward", "Forward")
+	ContextActionService:SetTitle("MoveBackward", "Backward")
+	ContextActionService:SetTitle("RotateLeft", "Left")
+	ContextActionService:SetTitle("RotateRight", "Right")
+end
+--setupBindings()
 
 local function cleanup()
 	RunService:UnbindFromRenderStep("MechanicMovement")
