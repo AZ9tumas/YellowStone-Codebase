@@ -10,28 +10,31 @@ function MovementController.new(player, camera, packets)
 	self.Player = player
 	self.Camera = camera
 	self.Packets = packets
-	-- We need the ControlModule to know where the player *wants* to go vs where they are facing
 	self.ControlModule = require(player.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
 
 	self.Params = {
+		-- Movement States
 		CurrentWalkingStyle = "Walk",
 		CurrentRunningStyle = "Sprint",
 		CurrentState = "Idle",
 		CurrentFacingDirection = Vector3.new(0, 0, 0),
 
+		-- Physics Params
 		RotationY = 0,
 		AngularVelocity = 0,
 		MoveDirection = 0,
 
+		-- Momentum Params
 		MomentumActive = false,
 		MomentumStartTime = 0,
 		MomentumDuration = 0.5,
 		MomentumStrength = 2,
 		
-		-- Tilting Settings
-		MaxTiltAngle = 25, -- Maximum tilt in degrees (adjust for more/less drama)
-		TiltSpeed = 8,     -- How fast it tilts (Higher = snappier, Lower = smoother)
-		CurrentTilt = 0,   -- Internal state tracker
+		-- Tilt Configuration
+		UsePhysicsTilt = true, -- Set to TRUE to use AlignOrientation, FALSE for Motor6D
+		MaxTiltAngle = 25,     
+		TiltSpeed = 6,         
+		CurrentTilt = 0,       -- Calculated tilt in radians
 	}
 
 	self.InputStateMap = {
@@ -46,7 +49,7 @@ function MovementController.new(player, camera, packets)
 		LinearVelocity = nil
 	}
 	
-	-- Store references to the joint we want to animate
+	-- Motor6D References (Preserved for "Visual" mode)
 	self.RootJoint = nil
 	self.OriginalRootC0 = nil
 
@@ -59,20 +62,23 @@ function MovementController:Init()
 	local char = self.Player.Character or self.Player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 
+	-- Initial Rotation calculation
 	self.Params.RotationY = math.deg(math.atan2(-hrp.CFrame.LookVector.X, -hrp.CFrame.LookVector.Z))
 
+	-- Physics Objects Setup
 	self.BodyMovers.AlignOrientation = hrp:WaitForChild("AlignOrientation", 5)
 	self.BodyMovers.LinearVelocity = hrp:WaitForChild("LinearVelocity", 5)
 	
-	-- Find the RootJoint (Connects HRP to Torso)
-	-- In R15 this is usually in LowerTorso labeled "Root", in R6 it's in HRP labeled "RootJoint"
-	self.RootJoint = hrp:FindFirstChild("RootJoint") or char:WaitForChild("LowerTorso"):FindFirstChild("Root")
-	
+	-- Motor6D Setup (Preserved)
+	-- We grab this even if using Physics Tilt, in case we switch modes dynamically
+	--self.RootJoint = hrp:FindFirstChild("RootJoint") or char:WaitForChild("LowerTorso"):FindFirstChild("Root")
+	self.RootJoint = nil
 	if self.RootJoint then
 		self.OriginalRootC0 = self.RootJoint.C0
 	end
 end
 
+-- Input handling
 function MovementController:UpdateMoveDir(actionName, inputState, inputObject)
 	if inputState == Enum.UserInputState.Begin then
 		if actionName == "MoveForward" then self.InputStateMap.Forward = true end
@@ -81,10 +87,9 @@ function MovementController:UpdateMoveDir(actionName, inputState, inputObject)
 		if actionName == "MoveForward" then self.InputStateMap.Forward = false end
 		if actionName == "MoveBackward" then self.InputStateMap.Backward = false end
 	end
-
+	
 	local forward = self.InputStateMap.Forward and 1 or 0
 	local backward = self.InputStateMap.Backward and 1 or 0
-
 	self.Params.MoveDirection = forward - backward
 end
 
@@ -99,10 +104,10 @@ function MovementController:HandleRotation(actionName, inputState, inputObject)
 
 	local left = self.InputStateMap.Left and 1 or 0
 	local right = self.InputStateMap.Right and 1 or 0
-
 	self.Params.AngularVelocity = (left - right)
 end
 
+-- Core Movement Logic (State & Momentum)
 function MovementController:UpdateMovement()
 	local char = self.Player.Character
 	if not char then return end
@@ -114,7 +119,7 @@ function MovementController:UpdateMovement()
 	local moveVector = self.ControlModule:GetMoveVector()
 	local laststate = params.CurrentState
 
-	-- Momentum Logic
+	-- Momentum
 	if params.MomentumActive then
 		local elapsed = os.clock() - params.MomentumStartTime
 		local progress = math.min(elapsed / params.MomentumDuration, 1)
@@ -148,6 +153,32 @@ function MovementController:UpdateMovement()
 	end
 end
 
+-- [[ TILT CALCULATION ]] --
+-- Calculates the target tilt based on input, independent of how we apply it
+function MovementController:CalculateTilt(dt)
+	local moveVector = self.ControlModule:GetMoveVector()
+	local hrp = self.Player.Character and self.Player.Character:FindFirstChild("HumanoidRootPart")
+	
+	if not hrp then return end
+	
+	local targetTilt = 0
+	
+	-- Only tilt if moving
+	if moveVector.Magnitude > 0.1 then
+		-- Convert global move vector to local space
+		local relativeMove = hrp.CFrame:VectorToObjectSpace(moveVector)
+		
+		-- Relative X determines turn direction: -X is Left, +X is Right
+		-- Banking logic: Turn Left (+Roll), Turn Right (-Roll)
+		local direction = -relativeMove.X 
+		targetTilt = direction * math.rad(self.Params.MaxTiltAngle)
+	end
+	
+	-- Smoothly interpolate current tilt
+	self.Params.CurrentTilt = self.Params.CurrentTilt + (targetTilt - self.Params.CurrentTilt) * math.min(dt * self.Params.TiltSpeed, 1)
+end
+
+-- [[ METHOD 1: PHYSICS TILT (AlignOrientation) ]] --
 function MovementController:UpdatePhysicsControllers(dt)
 	local char = self.Player.Character
 	if not char then return end
@@ -155,6 +186,7 @@ function MovementController:UpdatePhysicsControllers(dt)
 	local hmr = char:FindFirstChild("HumanoidRootPart")
 	if not hum or not hmr then return end
 
+	-- Ensure movers exist
 	if not self.BodyMovers.AlignOrientation or not self.BodyMovers.AlignOrientation.Parent then
 		self.BodyMovers.AlignOrientation = hmr:FindFirstChildWhichIsA("AlignOrientation")
 	end
@@ -168,44 +200,53 @@ function MovementController:UpdatePhysicsControllers(dt)
 
 	local params = self.Params
 	local lookvec = hmr.CFrame.LookVector.Unit
+
+	-- Handle Y Rotation (Turning)
 	params.RotationY += params.AngularVelocity * dt * 150
 	params.RotationY = params.RotationY % 360
 
 	local movedir = Vector2.new(lookvec.X, lookvec.Z) * params.MoveDirection
 
-	ao.CFrame = CFrame.fromEulerAnglesYXZ(0, math.rad(params.RotationY), 0)
+	-- APPLY TILT HERE:
+	-- We construct a CFrame that has:
+	-- 1. The Y-Axis Rotation (Direction we are facing)
+	-- 2. The Z-Axis Rotation (The banking/tilt angle)
+	-- Order: YXZ applies Yaw first, then Roll.
+	ao.CFrame = CFrame.fromEulerAnglesYXZ(0, math.rad(params.RotationY), params.CurrentTilt)
+	
 	lv.PlaneVelocity = movedir * hum.WalkSpeed
 end
 
-function MovementController:TiltCharacter(dt)
+-- [[ METHOD 2: VISUAL TILT (Motor6D) ]] --
+-- Keep this function available as requested
+function MovementController:ApplyMotorTilt()
 	if not self.RootJoint or not self.OriginalRootC0 then return end
-	
-	local moveVector = self.ControlModule:GetMoveVector()
-	local hrp = self.Player.Character and self.Player.Character:FindFirstChild("HumanoidRootPart")
-	
-	if not hrp then return end
-	
-	local targetTilt = 0
-	if moveVector.Magnitude > 0.1 then
-		local relativeMove = hrp.CFrame:VectorToObjectSpace(moveVector)
-		-- If X is negative (turning left), we want a positive Roll to bank left.
-		-- If X is positive (turning right), we want a negative Roll to bank right.
-		local direction = -relativeMove.X 
-		targetTilt = direction * math.rad(self.Params.MaxTiltAngle)
-	end
-
-	local finalTiltSpeed = math.min(self.Params.TiltSpeed * dt, 1)
-	-- self.Params.CurrentTilt += targetTilt * self.Params.TiltSpeed * dt
-	self.Params.CurrentTilt = self.Params.CurrentTilt + (targetTilt - self.Params.CurrentTilt) * finalTiltSpeed
-
-	-- Apply the tilt to the RootJoint (Z axis is Roll)
+	-- Simply apply the pre-calculated CurrentTilt to the C0
 	self.RootJoint.C0 = self.OriginalRootC0 * CFrame.Angles(0, 0, self.Params.CurrentTilt)
 end
 
 function MovementController:Update(dt)
+	-- 1. Determine Movement State
 	self:UpdateMovement()
-	self:TiltCharacter(dt) -- Call the tilt function every frame
-	-- self:UpdatePhysicsControllers(dt) -- Kept commented out as per your original file
+	
+	-- 2. Calculate current tilt value (Math only)
+	self:CalculateTilt(dt)
+	
+	-- 3. Apply Controls based on preference
+	if self.Params.UsePhysicsTilt then
+		-- Apply rotation + tilt via AlignOrientation
+		self:UpdatePhysicsControllers(dt)
+		
+		-- Reset Motor6D if it was previously changed to avoid double tilting
+		if self.RootJoint and self.RootJoint.C0 ~= self.OriginalRootC0 then
+			self.RootJoint.C0 = self.OriginalRootC0
+		end
+	else
+		-- Use Motor6D for tilt
+		self:ApplyMotorTilt()
+		-- You might still want UpdatePhysicsControllers here for movement, 
+		-- just pass 0 as the tilt angle inside that function if you mix them.
+	end
 end
 
 function MovementController:ToggleWalkingStyle()
