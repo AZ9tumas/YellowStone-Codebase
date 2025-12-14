@@ -13,6 +13,9 @@ function MovementController.new(player, camera, packets)
 	-- We use the ControlModule to get the camera-relative move vector
 	self.ControlModule = require(player.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
 
+	self.Humanoid = self.Player.Character and self.Player.Character:WaitForChild("Humanoid")
+	self.HumanoidRootPart = self.Player.Character and self.Player.Character:WaitForChild("HumanoidRootPart")
+
 	self.Params = {
 		-- Movement States
 		CurrentWalkingStyle = "Walk",
@@ -30,9 +33,12 @@ function MovementController.new(player, camera, packets)
 		MomentumStrength = 2,
 		
 		-- Tilt Configuration
-		MaxTiltAngle = 25,     
-		TiltSpeed = 6,         
+		MaxTiltAngle = 25,
+		TiltSpeed = 6,
 		CurrentTilt = 0, -- Stored in radians
+		TiltSensitivity = 0.8, -- How "heavy" the turn needs to be to cause max tilt
+
+		LastHumanoidRootPartCFrame = self.HumanoidRootPart.CFrame
 	}
 
 	self.InputStateMap = {
@@ -77,9 +83,8 @@ end
 function MovementController:UpdateMovement()
 	local char = self.Player.Character
 	if not char then return end
-	local hum: Humanoid = char:FindFirstChild("Humanoid")
-	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if not hum or not hrp then return end
+	local hum: Humanoid = self.Humanoid
+	local hrp = self.HumanoidRootPart
 
 	local params = self.Params
 	local moveVector = self.ControlModule:GetMoveVector()
@@ -122,64 +127,32 @@ end
 function MovementController:UpdatePhysicsControllers(dt)
 	local char = self.Player.Character
 	if not char then return end
-	local hum = char:FindFirstChild("Humanoid")
-	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if not hum or not hrp then return end
+	local hrp = self.HumanoidRootPart
 
-	-- Ensure movers exist
 	if not self.BodyMovers.AlignOrientation or not self.BodyMovers.AlignOrientation.Parent then
 		self.BodyMovers.AlignOrientation = hrp:FindFirstChildWhichIsA("AlignOrientation")
 	end
-	if not self.BodyMovers.LinearVelocity or not self.BodyMovers.LinearVelocity.Parent then
-		self.BodyMovers.LinearVelocity = hrp:FindFirstChildWhichIsA("LinearVelocity")
-	end
-
+	
 	local ao = self.BodyMovers.AlignOrientation
-	local lv = self.BodyMovers.LinearVelocity
-	if not ao or not lv then return end
+	if not ao then return end
 
-	-- 1. Get Control Data
-	local moveVector = self.ControlModule:GetMoveVector()
 	local params = self.Params
+	local currentCFrame: CFrame = hrp.CFrame
+	local lastCFrame = params.LastHumanoidRootPartCFrame
+	local deltaCFrame = lastCFrame:ToObjectSpace(currentCFrame)
+	local _, rotY, _ = deltaCFrame:ToOrientation()
+	params.LastHumanoidRootPartCFrame = currentCFrame
 
-	-- 2. Calculate Tilt
-	local targetTilt = 0
+	local turnRate = rotY / dt
+	local targetTiltRad = turnRate * params.TiltSensitivity
 	
-	if moveVector.Magnitude > 0.1 then
-		-- Transform global move vector to local space relative to current orientation
-		-- to detect if we are strafing/turning left or right
-		local relativeMove = hrp.CFrame:VectorToObjectSpace(moveVector)
-		
-		-- -X is Left (Bank Positive), +X is Right (Bank Negative)
-		local direction = -relativeMove.X 
-		targetTilt = direction * math.rad(params.MaxTiltAngle)
-	end
-	
-	-- Smooth Tilt Interpolation
-	params.CurrentTilt = params.CurrentTilt + (targetTilt - params.CurrentTilt) * math.min(dt * params.TiltSpeed, 1)
+	local maxTiltRad = math.rad(params.MaxTiltAngle)
+	targetTiltRad = math.clamp(targetTiltRad, -maxTiltRad, maxTiltRad)
+	params.CurrentTilt = params.CurrentTilt + (targetTiltRad - params.CurrentTilt) * math.min(dt * params.TiltSpeed, 1)
 
-	-- 3. Update AlignOrientation
-	-- Since we removed manual rotation, we align to the moveVector (if moving) or keep looking forward (if idle)
-	-- We then apply the Tilt on top.
-	
-	local targetLookVector = hrp.CFrame.LookVector -- Default to current facing
-	
-	if moveVector.Magnitude > 0.05 then
-		targetLookVector = moveVector -- Face where we are walking
-	end
-	
-	-- Create a CFrame looking at the target direction
-	-- We flatten the vector to ensure we don't look into the ground
-	local flatLook = (targetLookVector * Vector3.new(1,0,1)).Unit
-	local baseOrientation = CFrame.lookAt(Vector3.zero, flatLook)
-	
-	-- Apply the Tilt (Roll/Z-Axis)
-	ao.CFrame = baseOrientation * CFrame.Angles(0, 0, params.CurrentTilt)
-	
-	-- 4. Update LinearVelocity (Movement)
-	-- We project the move vector onto the ground plane
-	local velocityDir = Vector2.new(moveVector.X, moveVector.Z)
-	lv.PlaneVelocity = velocityDir * hum.WalkSpeed
+	local finalRot = self.Params.CurrentFacingDirection * Vector3.new(1, 0, 1) * dt
+
+	self.BodyMovers.AlignOrientation.CFrame = CFrame.lookAt(Vector3.zero, finalRot) * CFrame.Angles(0, 0, params.CurrentTilt)
 end
 
 function MovementController:Update(dt)

@@ -194,6 +194,7 @@ function module.AddBodyMovers(plr: Player)
 	
 	local lv = physicsControllers:FindFirstChild("LinearVelocity")
 	local ao = physicsControllers:FindFirstChild("AlignOrientation")
+	local av = physicsControllers:FindFirstChild("AngularVelocity")
 
 	local a1 = Instance.new("Attachment", hrp)
 	a1.Name = "PhysicsAttachment"
@@ -213,7 +214,15 @@ function module.AddBodyMovers(plr: Player)
 		newAo.CFrame = CFrame.lookAt(Vector3.zero, hrp.CFrame.LookVector)
 		newAo.Parent = hrp
 		newAo.Attachment0 = a1
-		newAo.Enabled = false
+		newAo.Enabled = true
+	end
+
+	if av then
+		local newAv = av:Clone()
+		newAv.AngularVelocity = Vector3.new(0, 0, 0)
+		newAv.Parent = hrp
+		newAv.Attachment0 = a1
+		newAv.Enabled = true
 	end
 end
 
