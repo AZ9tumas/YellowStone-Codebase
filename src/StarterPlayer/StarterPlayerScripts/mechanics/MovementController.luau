@@ -163,6 +163,7 @@ function MovementController:UpdateMovement()
 		else
 			-- Force transition if state manager doesn't allow it but we need to change
 			-- This handles edge cases where the state system might be too restrictive
+			warn("MovementController: Force transitioning from " .. laststate .. " to " .. newState .. " (normal transition blocked)")
 			self.StateManager:TransitionTo(newState, true)
 			params.CurrentState = newState
 		end

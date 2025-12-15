@@ -58,10 +58,11 @@ function AnimationController:Init()
 		self.animator.Parent = humanoid
 	end
 	
-	-- Find animations folder under player
-	self.animationsFolder = self.player:FindFirstChild("Animations")
+	-- Wait for animations folder under player (created by server during morphing)
+	-- Use WaitForChild with a timeout to handle async creation
+	self.animationsFolder = self.player:WaitForChild("Animations", 5)
 	if not self.animationsFolder then
-		warn("AnimationController: No Animations folder found under player")
+		warn("AnimationController: Animations folder not found under player after waiting")
 		return
 	end
 	
