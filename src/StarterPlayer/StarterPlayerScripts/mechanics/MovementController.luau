@@ -3,7 +3,10 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Modules
-local commonM = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Common"))
+local modules = ReplicatedStorage:WaitForChild("Modules")
+local commonM = require(modules:WaitForChild("Common"))
+local StateManager = require(modules:WaitForChild("StateManager"))
+local AnimationController = require(modules:WaitForChild("AnimationController"))
 
 local MovementController = {}
 MovementController.__index = MovementController
@@ -22,6 +25,12 @@ function MovementController.new(player, camera, packets)
 
 	self.Humanoid = self.Player.Character and self.Player.Character:WaitForChild("Humanoid")
 	self.HumanoidRootPart = self.Player.Character and self.Player.Character:WaitForChild("HumanoidRootPart")
+	
+	-- Initialize state manager
+	self.StateManager = StateManager.new(player, "Idle")
+	
+	-- Initialize animation controller
+	self.AnimationController = AnimationController.new(player)
 
 	self.Params = {
 		-- Movement States
@@ -58,9 +67,27 @@ function MovementController.new(player, camera, packets)
 		LinearVelocity = nil
 	}
 	
+	-- Setup state change callback for animations
+	self:SetupStateCallbacks()
+	
 	self:Init()
 
 	return self
+end
+
+function MovementController:SetupStateCallbacks()
+	-- Register callback to update animations when state changes
+	self.StateManager:OnStateChanged(function(newState, oldState, stateConfig)
+		-- Update animation based on new state
+		if self.AnimationController then
+			self.AnimationController:UpdateForState(newState)
+		end
+		
+		-- Sync with server via packets
+		if self.Packets then
+			self.Packets.sprint.send({sprintType = newState})
+		end
+	end)
 end
 
 function MovementController:Init()
@@ -113,21 +140,32 @@ function MovementController:UpdateMovement()
 		end
 	end
 
+	local newState
 	if moveVector.Magnitude ~= 0 then
-		params.CurrentState = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and params.CurrentRunningStyle or params.CurrentWalkingStyle
+		newState = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and params.CurrentRunningStyle or params.CurrentWalkingStyle
 		params.CurrentFacingDirection = hum.MoveDirection.Unit
 		params.MomentumActive = false
 	else
-		params.CurrentState = "Idle"
+		newState = "Idle"
 		params.CurrentFacingDirection = hrp.CFrame.LookVector
 	end
 
-	if laststate ~= params.CurrentState then
-		if hum.WalkSpeed > 0 and params.CurrentState == "Idle" then
-			params.MomentumActive = true
-			params.MomentumStartTime = os.clock()
+	-- Use StateManager for state transitions
+	if laststate ~= newState then
+		local transitioned = self.StateManager:TransitionTo(newState)
+		if transitioned then
+			params.CurrentState = newState
+			
+			if hum.WalkSpeed > 0 and newState == "Idle" then
+				params.MomentumActive = true
+				params.MomentumStartTime = os.clock()
+			end
+		else
+			-- Force transition if state manager doesn't allow it but we need to change
+			-- This handles edge cases where the state system might be too restrictive
+			self.StateManager:TransitionTo(newState, true)
+			params.CurrentState = newState
 		end
-		self.Packets.sprint.send({sprintType = params.CurrentState})
 	end
 end
 
@@ -169,27 +207,50 @@ end
 
 function MovementController:ToggleWalkingStyle()
 	local params = self.Params
-	local oldState = params.CurrentWalkingStyle
+	local oldWalkingStyle = params.CurrentWalkingStyle
 	params.CurrentWalkingStyle = if params.CurrentWalkingStyle == "Walk" then "Trot" else "Walk"
 
-	if oldState ~= params.CurrentRunningStyle then
-		self.Packets.sprint.send({
-			sprintType = params.CurrentWalkingStyle
-		})
+	-- If currently in the old walking state, transition to the new one
+	if params.CurrentState == oldWalkingStyle then
+		self.StateManager:TransitionTo(params.CurrentWalkingStyle, true)
+		params.CurrentState = params.CurrentWalkingStyle
 	end
+	
 	return params.CurrentWalkingStyle
 end
 
 function MovementController:ToggleRunningStyle()
 	local params = self.Params
-	if params.CurrentState == params.CurrentRunningStyle then
-		self.Packets.sprint.send({
-			sprintType = params.CurrentRunningStyle
-		})
+	local oldRunningStyle = params.CurrentRunningStyle
+	params.CurrentRunningStyle = if params.CurrentRunningStyle == "Sprint" then "Run" else "Sprint"
+	
+	-- If currently in the old running state, transition to the new one
+	if params.CurrentState == oldRunningStyle then
+		self.StateManager:TransitionTo(params.CurrentRunningStyle, true)
+		params.CurrentState = params.CurrentRunningStyle
 	end
 
-	params.CurrentRunningStyle = if params.CurrentRunningStyle == "Sprint" then "Run" else "Sprint"
 	return params.CurrentRunningStyle
+end
+
+-- Get the current state manager
+function MovementController:GetStateManager()
+	return self.StateManager
+end
+
+-- Get the animation controller
+function MovementController:GetAnimationController()
+	return self.AnimationController
+end
+
+-- Cleanup method
+function MovementController:Destroy()
+	if self.StateManager then
+		self.StateManager:Destroy()
+	end
+	if self.AnimationController then
+		self.AnimationController:Destroy()
+	end
 end
 
 return MovementController

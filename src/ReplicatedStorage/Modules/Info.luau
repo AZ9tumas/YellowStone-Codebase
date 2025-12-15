@@ -31,7 +31,15 @@ return {
 
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
-			["HealthAttackCost"] = 0.2
+			["HealthAttackCost"] = 0.2,
+
+			["Animations"] = {
+				["Idle"] = "rbxassetid://123456781",
+				["Walk"] = "rbxassetid://123456782",
+				["Trot"] = "rbxassetid://123456783",
+				["Run"] = "rbxassetid://123456784",
+				["Sprint"] = "rbxassetid://123456785",
+			}
 		},
 		["Female"] = {
 			["IdleSpeed"] = 0,
@@ -63,7 +71,15 @@ return {
 
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
-			["HealthAttackCost"] = 0.2
+			["HealthAttackCost"] = 0.2,
+
+			["Animations"] = {
+				["Idle"] = "rbxassetid://123456791",
+				["Walk"] = "rbxassetid://123456792",
+				["Trot"] = "rbxassetid://123456793",
+				["Run"] = "rbxassetid://123456794",
+				["Sprint"] = "rbxassetid://123456795",
+			}
 		}
 	}
 }

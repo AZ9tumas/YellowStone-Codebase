@@ -81,6 +81,11 @@ local function cleanup()
 	ContextActionService:UnbindAction("MoveBackward")
 	ContextActionService:UnbindAction("RotateLeft")
 	ContextActionService:UnbindAction("RotateRight")
+	
+	-- Cleanup controller resources (state manager and animation controller)
+	if controller then
+		controller:Destroy()
+	end
 end
 
 player.CharacterRemoving:Connect(function()

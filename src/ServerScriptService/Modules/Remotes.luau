@@ -226,6 +226,49 @@ function module.AddBodyMovers(plr: Player)
 	end
 end
 
+-- Setup animations folder under player with Animation instances
+function module.SetupAnimations(plr: Player, charName: string, gender: string)
+	local charInfo = infoM[charName]
+	if not charInfo then 
+		warn("SetupAnimations: No character info found for " .. charName)
+		return false 
+	end
+
+	charInfo = charInfo[gender]
+	if not charInfo then 
+		warn("SetupAnimations: No gender info found for " .. gender)
+		return false 
+	end
+
+	local animations = charInfo.Animations
+	if not animations then
+		warn("SetupAnimations: No animations defined for " .. charName .. " " .. gender)
+		return false
+	end
+
+	-- Remove existing animations folder if it exists
+	local existingFolder = plr:FindFirstChild("Animations")
+	if existingFolder then
+		existingFolder:Destroy()
+	end
+
+	-- Create new animations folder under player
+	local animationsFolder = Instance.new("Folder")
+	animationsFolder.Name = "Animations"
+	animationsFolder.Parent = plr
+
+	-- Create Animation instances for each state animation
+	for stateName, animationId in pairs(animations) do
+		local animation = Instance.new("Animation")
+		animation.Name = stateName
+		animation.AnimationId = animationId
+		animation.Parent = animationsFolder
+	end
+
+	print("SetupAnimations: Created animations folder for " .. plr.Name .. " with " .. #animationsFolder:GetChildren() .. " animations")
+	return true
+end
+
 function module.Morph(plr: Player, charName: string, gender: string)
 	local modelsUnderGender = models:FindFirstChild(gender)
 	if not modelsUnderGender then return false, "No such gender" end
@@ -250,6 +293,9 @@ function module.Morph(plr: Player, charName: string, gender: string)
 	plr:SetAttribute("State", "Idle")
 	
 	module.AddBodyMovers(plr)
+	
+	-- Setup animations folder under player
+	module.SetupAnimations(plr, charName, gender)
 
 	-- setup scripts and spawn assets
 	local sc = {}
