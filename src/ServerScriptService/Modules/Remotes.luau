@@ -222,7 +222,7 @@ function module.AddBodyMovers(plr: Player)
 		newAv.AngularVelocity = Vector3.new(0, 0, 0)
 		newAv.Parent = hrp
 		newAv.Attachment0 = a1
-		newAv.Enabled = true
+		newAv.Enabled = false
 	end
 end
 

@@ -1,11 +1,18 @@
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Modules
+local commonM = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Common"))
 
 local MovementController = {}
 MovementController.__index = MovementController
 
 function MovementController.new(player, camera, packets)
 	local self = setmetatable({}, MovementController)
+
+	local plrInfo = commonM.GetPlayerInfo(player)
+	print(plrInfo)
 
 	self.Player = player
 	self.Camera = camera
@@ -33,10 +40,10 @@ function MovementController.new(player, camera, packets)
 		MomentumStrength = 2,
 		
 		-- Tilt Configuration
-		MaxTiltAngle = 25,
-		TiltSpeed = 6,
-		CurrentTilt = 0, -- Stored in radians
-		TiltSensitivity = 0.8, -- How "heavy" the turn needs to be to cause max tilt
+		MaxTiltAngle = plrInfo.MaxTiltAngle or 25,
+		TiltSpeed = plrInfo.TiltSpeed or 2,
+		CurrentTilt = 0,
+		TiltSensitivity = plrInfo.TiltSensitivity or 0.8, -- How "heavy" the turn needs to be to cause max tilt
 
 		LastHumanoidRootPartCFrame = self.HumanoidRootPart.CFrame
 	}

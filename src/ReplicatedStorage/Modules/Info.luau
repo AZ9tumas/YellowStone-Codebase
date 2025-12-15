@@ -25,6 +25,9 @@ return {
 
 			-- Ignore for now
 			--["IdleDeceleration"] = 75, -- Twice the highest speed possible
+			["MaxTiltAngle"] = 20,
+			["TiltSensitivity"] = 0.8,
+			["TiltSpeed"] = 2,
 
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
@@ -53,6 +56,10 @@ return {
 
 			-- Ignore for now
 			--["IdleDeceleration"] = 75, -- Twice the highest speed possible
+
+			["MaxTiltAngle"] = 20,
+			["TiltSensitivity"] = 0.8,
+			["TiltSpeed"] = 2,
 
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
