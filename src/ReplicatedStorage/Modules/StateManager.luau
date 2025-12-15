@@ -10,7 +10,6 @@
 
 local StateManager = {}
 StateManager.__index = StateManager
-
 export type StateConfig = {
 	name: string,
 	speed: number?,

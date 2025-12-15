@@ -19,7 +19,8 @@ local spawnPacket = packets.spawn
 
 -- ui
 local ScreenGui = playerGui:WaitForChild("Menu")
-local SpawnButton: TextButton = ScreenGui:WaitForChild("SpawnButton")
+local horise: TextButton = ScreenGui:WaitForChild("Horsie")
+local muleDeer: TextButton = ScreenGui:WaitForChild("MuleDeer")
 local statsFrame: Frame = ScreenGui:WaitForChild("Frame")
 local fadeFrame: Frame = ScreenGui:WaitForChild("Transition")
 
@@ -36,15 +37,13 @@ local function createTween(fadein)
 	):Play()
 end
 
-SpawnButton.MouseButton1Down:Connect(function()
-	print("Hello")
-	
+local function buttonClick(button: TextButton)
 	createTween(true)
 	
 	task.wait(1)
 	-- send packet here
 	spawnPacket.send({
-		charName = "Horsie",
+		charName = button.Name,
 		gender = "Male"
 	})
 	
@@ -55,18 +54,26 @@ SpawnButton.MouseButton1Down:Connect(function()
 	-- load
 	local descendants = newChar:GetDescendants()
 	local len = #descendants
-	SpawnButton.Text = "Loading... 0/" .. tostring(len)
+	button.Text = "Loading... 0/" .. tostring(len)
 	local c = 0
 	
 	ContentProvider:PreloadAsync(descendants, function(a, b)
 		c += 1
-		SpawnButton.Text = "Loading... " .. tostring(c) .. "/" .. tostring(len)
+		button.Text = "Loading... " .. tostring(c) .. "/" .. tostring(len)
 	end)
 
-	SpawnButton.Text = "SPAWN"
+	button.Text = button.Name:upper()
 	
 	task.wait()
 	createTween(false)
+end
+
+horise.MouseButton1Click:Connect(function()
+	buttonClick(horise)
+end)
+
+muleDeer.MouseButton1Click:Connect(function()
+	buttonClick(muleDeer)
 end)
 
 local function updateStats()
