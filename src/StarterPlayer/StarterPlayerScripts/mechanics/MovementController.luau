@@ -20,16 +20,14 @@ function MovementController.new(player, camera, packets)
     self.Player = player
     self.Camera = camera
     self.Packets = packets
-    -- We use the ControlModule to get the camera-relative move vector
+
     self.ControlModule = require(player.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
 
     self.Humanoid = self.Player.Character and self.Player.Character:WaitForChild("Humanoid")
     self.HumanoidRootPart = self.Player.Character and self.Player.Character:WaitForChild("HumanoidRootPart")
-    
-    -- Initialize state manager
+
     self.StateManager = StateManager.new(player, "Idle")
-    
-    -- Initialize animation controller
+
     self.AnimationController = AnimationController.new(player)
 
     self.Params = {
@@ -37,16 +35,14 @@ function MovementController.new(player, camera, packets)
         CurrentWalkingStyle = "Walk",
         CurrentRunningStyle = "Sprint",
         CurrentState = "Idle",
-        
+
         -- Facing / Physics
         CurrentFacingDirection = self.HumanoidRootPart and self.HumanoidRootPart.CFrame.LookVector or Vector3.new(0, 0, -1),
         TargetSpeed = 0,
 
-        -- Physics Params (Cleaned)
         MoveDirection = 0,
 
-        -- Turning Configuration (Adjustable per animal via plrInfo)
-        -- NOW PULLED FROM THE INFO MODULE
+        -- Turn
         BaseTurnRate = plrInfo.BaseTurnRate or 4,
         TurnSpeedDecay = plrInfo.TurnSpeedDecay or 0.08,
         TurnBrakeSensitivity = plrInfo.TurnBrakeSensitivity or 2.5,
@@ -54,10 +50,10 @@ function MovementController.new(player, camera, packets)
         -- Momentum Params
         MomentumActive = false,
         MomentumStartTime = 0,
-        MomentumDuration = 0.5,
-        MomentumStrength = 2,
-        
-        -- Tilt Configuration
+        MomentumDuration = 0.6,
+        MomentumStrength = 3,
+
+        -- Tilt Conf
         MaxTiltAngle = plrInfo.MaxTiltAngle or 25,
         TiltSpeed = plrInfo.TiltSpeed or 2,
         CurrentTilt = 0,
@@ -75,24 +71,19 @@ function MovementController.new(player, camera, packets)
         AlignOrientation = nil,
         LinearVelocity = nil
     }
-    
-    -- Setup state change callback for animations
+
     self:SetupStateCallbacks()
-    
     self:Init()
 
     return self
 end
 
 function MovementController:SetupStateCallbacks()
-    -- Register callback to update animations when state changes
     self.StateManager:OnStateChanged(function(newState, oldState, stateConfig)
-        -- Update animation based on new state
         if self.AnimationController then
             self.AnimationController:UpdateForState(newState)
         end
-        
-        -- Sync with server via packets
+
         if self.Packets then
             self.Packets.sprint.send({sprintType = newState})
         end
@@ -104,17 +95,14 @@ function MovementController:Init()
     local hrp = char:WaitForChild("HumanoidRootPart")
     local hum = char:WaitForChild("Humanoid")
 
-    -- DISABLE DEFAULT ROBLOX ROTATION
-    -- We are handling rotation manually with AlignOrientation
     hum.AutoRotate = false
 
     self.BodyMovers.AlignOrientation = hrp:WaitForChild("AlignOrientation", 5)
     self.BodyMovers.LinearVelocity = hrp:WaitForChild("LinearVelocity", 5)
-    
+
     self.Params.CurrentFacingDirection = hrp.CFrame.LookVector
 end
 
--- Only tracking Forward/Backward for momentum logic
 function MovementController:UpdateMoveDir(actionName, inputState, inputObject)
     if inputState == Enum.UserInputState.Begin then
         if actionName == "MoveForward" then self.InputStateMap.Forward = true end
@@ -123,24 +111,23 @@ function MovementController:UpdateMoveDir(actionName, inputState, inputObject)
         if actionName == "MoveForward" then self.InputStateMap.Forward = false end
         if actionName == "MoveBackward" then self.InputStateMap.Backward = false end
     end
-    
+
     local forward = self.InputStateMap.Forward and 1 or 0
     local backward = self.InputStateMap.Backward and 1 or 0
     self.Params.MoveDirection = forward - backward
 end
 
 function MovementController:UpdateMovement(dt)
+    -- This only does the turning. Nothing else. Here, the major
+    -- "setter" is Humanoid:Move(dir) and the rest is just calculating
     local char = self.Player.Character
     if not char then return end
     local hum: Humanoid = self.Humanoid
     local hrp = self.HumanoidRootPart
     local params = self.Params
-
     local moveVector = self.ControlModule:GetMoveVector()
-    local laststate = params.CurrentState
-
     local targetDir = Vector3.new()
-    local newState
+    
     if moveVector.Magnitude > 0 then
         -- get the absolute target direction (relative to world)
         local camCF = self.Camera.CFrame
@@ -149,19 +136,13 @@ function MovementController:UpdateMovement(dt)
         if targetDir.Magnitude > 0.001 then
             targetDir = targetDir.Unit
         end
-
-        -- update stage
-        newState = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and params.CurrentRunningStyle or params.CurrentWalkingStyle
-        params.MomentumActive = true
     else
         targetDir = params.CurrentFacingDirection
-        params.MomentumActive = false
-        newState = "Idle"
     end
 
     local currentSpeed = hrp.AssemblyLinearVelocity.Magnitude
     local maxTurnRate = params.BaseTurnRate / (1 + (currentSpeed * params.TurnSpeedDecay))
-    
+
     local currentDir: Vector3 = params.CurrentFacingDirection
     local dot = math.clamp(currentDir:Dot(targetDir), -1, 1)
     -- Here, angleDiff is the final angle difference between current
@@ -171,7 +152,7 @@ function MovementController:UpdateMovement(dt)
 
     if moveVector.Magnitude > 0 and angleDiff > 0.001 then
         local maxStep = maxTurnRate * dt
-        
+
         local cross = currentDir:Cross(targetDir)
         local turnDirection = math.sign(cross.Y)
         if turnDirection == 0 then turnDirection = 1 end
@@ -183,8 +164,55 @@ function MovementController:UpdateMovement(dt)
 
     if moveVector.Magnitude > 0 then
         hum:Move(params.CurrentFacingDirection)
+        -- handle momentum
+        --params.MomentumActive = false
     else
         hum:Move(Vector3.zero)
+    end
+end
+
+function MovementController:UpdateStates(dt)
+    --[[
+        Important information:
+        -> Here, while you stop moving (moveVecter.Magnitude == 0), we do not immediately
+           transition to "Idle". Instead, we enable a "momentum" effect that
+           allows the character to keep moving slightly for a short duration.
+           This is on paper obviously. In reality we choose to set "Idle" as the state
+           and have an independent, non-state-dependent momentum system that
+           applies Humanoid:Move to the vector pointing to the last known facing direction.
+
+           Although this may seem unprofessional, it allows us to keep the state machine
+           simple and clean, while still achieving the desired momentum effect.
+           Not to mention, server has to set walkspeed to zero when stopping anyway.
+    ]]
+    -- on state change
+    local params = self.Params
+    local laststate = params.CurrentState
+    local hum = self.Humanoid
+    local newState = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+        and params.CurrentRunningStyle or params.CurrentWalkingStyle
+    local moveVector = self.ControlModule:GetMoveVector()
+
+    if moveVector.Magnitude <= 0 then
+        -- handle no-momentum states
+        newState = "Idle"
+    else
+        params.MomentumActive = false
+    end
+
+    if laststate ~= newState then
+        -- momentum enabled only when we are transitioning to idle, and we aren't already
+        -- in momentum.
+        if newState == "Idle" and params.CurrentState ~= "Idle"and params.MomentumActive == false then
+            params.MomentumActive = true
+            params.MomentumStartTime = os.clock()
+            print("Momentum enabled")
+        else
+            -- handle idle separately here. No transition.
+            params.CurrentState = newState
+            local success = self.StateManager:TransitionTo(params.CurrentState)
+            if success then print("Transitioned to state: " .. params.CurrentState) end
+        end
     end
 
     -- Momentum
@@ -200,20 +228,12 @@ function MovementController:UpdateMovement(dt)
             end
         else
             params.MomentumActive = false
+            if moveVector.Magnitude <= 0 then
+                -- no genuine movement input, go to idle most likely
+                print("Genuine idle set")
+                -- Set idle state here.
+            end
         end
-    end
-
-    -- on state change
-    if laststate ~= newState then
-        if hum.WalkSpeed > 0 and newState == "Idle" then
-            params.MomentumActive = true
-            params.MomentumStartTime = os.clock()
-        else
-            local success = self.StateManager:TransitionTo(newState)
-            if success then print("Transitioned to state: " .. newState) end
-        end
-        
-        params.CurrentState = newState
     end
 end
 
@@ -225,27 +245,27 @@ function MovementController:UpdatePhysicsControllers(dt)
     if not self.BodyMovers.AlignOrientation or not self.BodyMovers.AlignOrientation.Parent then
         self.BodyMovers.AlignOrientation = hrp:FindFirstChildWhichIsA("AlignOrientation")
     end
-    
+
     local ao = self.BodyMovers.AlignOrientation
     if not ao then return end
 
     local params = self.Params
-    
+
     -- Calculate Turn Rate for Visual Tilt
     local lastFacing = params.LastFacingVector or params.CurrentFacingDirection
     local currentFacing = params.CurrentFacingDirection
-    
+
     local cross = lastFacing:Cross(currentFacing)
-    local angleChange = math.asin(math.clamp(cross.Y, -1, 1))
+    local angleChange = math.asin(math.clamp(cross.Y, -1, 1)) -- rad
     local turnRate = angleChange / dt
-    
+
     params.LastFacingVector = currentFacing
 
     -- Calculate Tilt
     local targetTiltRad = turnRate * params.TiltSensitivity
     local maxTiltRad = math.rad(params.MaxTiltAngle)
     targetTiltRad = math.clamp(targetTiltRad, -maxTiltRad, maxTiltRad)
-    
+
     params.CurrentTilt = params.CurrentTilt + (targetTiltRad - params.CurrentTilt) * math.min(dt * params.TiltSpeed, 1)
 
     -- Apply Final CFrame to AlignOrientation
@@ -255,6 +275,7 @@ end
 
 function MovementController:Update(dt)
     self:UpdateMovement(dt)
+    self:UpdateStates(dt)
     self:UpdatePhysicsControllers(dt)
 end
 
@@ -267,7 +288,7 @@ function MovementController:ToggleWalkingStyle()
         self.StateManager:TransitionTo(params.CurrentWalkingStyle, true)
         params.CurrentState = params.CurrentWalkingStyle
     end
-    
+
     return params.CurrentWalkingStyle
 end
 
@@ -275,7 +296,7 @@ function MovementController:ToggleRunningStyle()
     local params = self.Params
     local oldRunningStyle = params.CurrentRunningStyle
     params.CurrentRunningStyle = if params.CurrentRunningStyle == "Sprint" then "Run" else "Sprint"
-    
+
     if params.CurrentState == oldRunningStyle then
         self.StateManager:TransitionTo(params.CurrentRunningStyle, true)
         params.CurrentState = params.CurrentRunningStyle

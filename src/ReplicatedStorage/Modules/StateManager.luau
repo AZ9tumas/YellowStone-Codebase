@@ -127,22 +127,18 @@ function StateManager:RegisterState(config: StateConfig)
 	return true
 end
 
--- Add a restriction that may block certain state transitions
 function StateManager:AddRestriction(restrictionName: string)
 	self.restrictions[restrictionName] = true
 end
 
--- Remove a restriction
 function StateManager:RemoveRestriction(restrictionName: string)
 	self.restrictions[restrictionName] = nil
 end
 
--- Check if a restriction is active
 function StateManager:HasRestriction(restrictionName: string): boolean
 	return self.restrictions[restrictionName] == true
 end
 
--- Check if transition to a state is valid
 function StateManager:CanTransitionTo(targetState: string): boolean
 	local currentStateConfig = self.states[self.currentState]
 	local targetStateConfig = self.states[targetState]
@@ -151,7 +147,6 @@ function StateManager:CanTransitionTo(targetState: string): boolean
 		return false
 	end
 	
-	-- Check if target state is in allowed transitions
 	local canTransition = false
 	if currentStateConfig.canTransitionTo then
 		for _, allowedState in ipairs(currentStateConfig.canTransitionTo) do
@@ -166,7 +161,6 @@ function StateManager:CanTransitionTo(targetState: string): boolean
 		return false
 	end
 	
-	-- Check if any restrictions block this state
 	if targetStateConfig.restrictions then
 		for _, restriction in ipairs(targetStateConfig.restrictions) do
 			if self:HasRestriction(restriction) then
@@ -178,7 +172,6 @@ function StateManager:CanTransitionTo(targetState: string): boolean
 	return true
 end
 
--- Transition to a new state
 function StateManager:TransitionTo(targetState: string, force: boolean?): boolean
 	if not force and not self:CanTransitionTo(targetState) then
 		return false
@@ -194,7 +187,7 @@ function StateManager:TransitionTo(targetState: string, force: boolean?): boolea
 	self.previousState = oldState
 	self.currentState = targetState
 	
-	-- Fire all state change callbacks
+	-- fire all callbacks
 	for _, callback in ipairs(self.stateChangeCallbacks) do
 		task.spawn(callback, targetState, oldState, targetStateConfig)
 	end
@@ -202,23 +195,19 @@ function StateManager:TransitionTo(targetState: string, force: boolean?): boolea
 	return true
 end
 
--- Get current state name
 function StateManager:GetCurrentState(): string
 	return self.currentState
 end
 
--- Get previous state name
 function StateManager:GetPreviousState(): string?
 	return self.previousState
 end
 
--- Get state configuration
 function StateManager:GetStateConfig(stateName: string?): StateConfig?
 	local state = stateName or self.currentState
 	return self.states[state]
 end
 
--- Get speed for a state (uses info from creature if available)
 function StateManager:GetStateSpeed(stateName: string?, creatureInfo: {[string]: any}?): number
 	local state = stateName or self.currentState
 	local stateConfig = self.states[state]
@@ -227,7 +216,6 @@ function StateManager:GetStateSpeed(stateName: string?, creatureInfo: {[string]:
 		return 0
 	end
 	
-	-- Try to get speed from creature info first
 	if creatureInfo then
 		local speedKey = state .. "Speed"
 		if creatureInfo[speedKey] then
@@ -238,11 +226,9 @@ function StateManager:GetStateSpeed(stateName: string?, creatureInfo: {[string]:
 	return stateConfig.speed or 0
 end
 
--- Register a callback to be called when state changes
 function StateManager:OnStateChanged(callback: (newState: string, oldState: string?, stateConfig: StateConfig?) -> ())
 	table.insert(self.stateChangeCallbacks, callback)
 	
-	-- Return unsubscribe function
 	return function()
 		for i, cb in ipairs(self.stateChangeCallbacks) do
 			if cb == callback then
@@ -253,7 +239,6 @@ function StateManager:OnStateChanged(callback: (newState: string, oldState: stri
 	end
 end
 
--- Get all available states that can be transitioned to from current state
 function StateManager:GetAvailableTransitions(): {string}
 	local currentStateConfig = self.states[self.currentState]
 	if not currentStateConfig or not currentStateConfig.canTransitionTo then
@@ -270,14 +255,12 @@ function StateManager:GetAvailableTransitions(): {string}
 	return available
 end
 
--- Get state priority (useful for determining which state should take precedence)
 function StateManager:GetStatePriority(stateName: string?): number
 	local state = stateName or self.currentState
 	local stateConfig = self.states[state]
 	return stateConfig and stateConfig.priority or 0
 end
 
--- Add a transition between two states
 function StateManager:AddTransition(fromState: string, toState: string)
 	local stateConfig = self.states[fromState]
 	if not stateConfig then
@@ -289,7 +272,6 @@ function StateManager:AddTransition(fromState: string, toState: string)
 		stateConfig.canTransitionTo = {}
 	end
 	
-	-- Check if transition already exists
 	for _, existing in ipairs(stateConfig.canTransitionTo) do
 		if existing == toState then
 			return true
@@ -300,7 +282,6 @@ function StateManager:AddTransition(fromState: string, toState: string)
 	return true
 end
 
--- Remove a transition between two states
 function StateManager:RemoveTransition(fromState: string, toState: string)
 	local stateConfig = self.states[fromState]
 	if not stateConfig or not stateConfig.canTransitionTo then
@@ -317,7 +298,6 @@ function StateManager:RemoveTransition(fromState: string, toState: string)
 	return false
 end
 
--- Cleanup
 function StateManager:Destroy()
 	self.stateChangeCallbacks = {}
 	self.states = {}

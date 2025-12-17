@@ -23,11 +23,12 @@ return {
 			["Acceleration"] = 25,
 			["Deceleration"] = 10,
 
-			-- Turning Configuration (Heavier feel)
-			["BaseTurnRate"] = 4.5,        -- Slower turning circle when stopped
-			["TurnSpeedDecay"] = 0.05,      -- Speed reduces turn ability significantly
-			["TurnBrakeSensitivity"] = 3.0, -- Brakes hard when trying to turn sharp (no implementation yet)
+			-- Turning Configuration
+			["BaseTurnRate"] = 4.5,
+			["TurnSpeedDecay"] = 0.05, --(imo, lower is better)
+			["TurnBrakeSensitivity"] = 3.0,
 
+			-- Tilt
 			["MaxTiltAngle"] = 20,
 			["TiltSensitivity"] = 0.8,
 			["TiltSpeed"] = 2,

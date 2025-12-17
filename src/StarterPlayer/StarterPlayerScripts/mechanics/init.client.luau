@@ -49,7 +49,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 		packets.attack.send()
-		attackLabel.Text = "Attacking..." 
+		attackLabel.Text = "Attacking..."
 	end
 end)
 

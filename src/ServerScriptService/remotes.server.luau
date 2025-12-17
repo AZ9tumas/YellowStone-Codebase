@@ -18,7 +18,7 @@ packets.spawn.listen(function(data, player)
 end)
 
 packets.sprint.listen(function(data, player)
-	print(remotesM.Sprint(player, data.sprintType))
+	remotesM.Sprint(player, data.sprintType)
 end)
 
 packets.attack.listen(function(_, player)

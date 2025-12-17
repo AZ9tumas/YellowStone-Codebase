@@ -145,7 +145,6 @@ end
 function module.Sprint(plr: Player, sprintType: string)
     -- State change func, main logic handled in UpdateStamina
 
-    print(plr, sprintType)
     local char = plr.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     local hmr = char and char:FindFirstChild("HumanoidRootPart")
