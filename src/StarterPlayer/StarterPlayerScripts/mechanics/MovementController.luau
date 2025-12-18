@@ -75,6 +75,8 @@ function MovementController.new(player, camera, packets)
     self:SetupStateCallbacks()
     self:Init()
 
+    print(self)
+
     return self
 end
 
@@ -124,6 +126,9 @@ function MovementController:UpdateMovement(dt)
     if not char then return end
     local hum: Humanoid = self.Humanoid
     local hrp = self.HumanoidRootPart
+    
+    if not hum or not hrp or hum.Parent ~= char or hrp.Parent ~= char then return end
+
     local params = self.Params
     local moveVector = self.ControlModule:GetMoveVector()
     local targetDir = Vector3.new()
@@ -172,6 +177,11 @@ function MovementController:UpdateMovement(dt)
 end
 
 function MovementController:UpdateStates(dt)
+    local char = self.Player.Character
+    if not char then return end
+    local hum = self.Humanoid
+    if not hum or hum.Parent ~= char then return end
+
     --[[
         Important information:
         -> Here, while you stop moving (moveVecter.Magnitude == 0), we do not immediately
@@ -203,12 +213,17 @@ function MovementController:UpdateStates(dt)
     if laststate ~= newState then
         -- momentum enabled only when we are transitioning to idle, and we aren't already
         -- in momentum.
-        if newState == "Idle" and params.CurrentState ~= "Idle"and params.MomentumActive == false then
-            params.MomentumActive = true
-            params.MomentumStartTime = os.clock()
-            print("Momentum enabled")
+        if newState == "Idle" and params.CurrentState ~= "Idle" then
+            if not params.MomentumActive then
+                params.MomentumActive = true
+                params.MomentumStartTime = os.clock()
+                print("Momentum enabled")
+
+                params.CurrentState = "Walk"
+                self.StateManager:TransitionTo("Walk")
+            end
         else
-            -- handle idle separately here. No transition.
+            -- handle idle separately.
             params.CurrentState = newState
             local success = self.StateManager:TransitionTo(params.CurrentState)
             if success then print("Transitioned to state: " .. params.CurrentState) end
@@ -232,6 +247,8 @@ function MovementController:UpdateStates(dt)
                 -- no genuine movement input, go to idle most likely
                 print("Genuine idle set")
                 -- Set idle state here.
+                params.CurrentState = "Idle"
+                self.StateManager:TransitionTo("Idle")
             end
         end
     end
@@ -241,6 +258,8 @@ function MovementController:UpdatePhysicsControllers(dt)
     local char = self.Player.Character
     if not char then return end
     local hrp = self.HumanoidRootPart
+
+    if not hrp or hrp.Parent ~= char then return end
 
     if not self.BodyMovers.AlignOrientation or not self.BodyMovers.AlignOrientation.Parent then
         self.BodyMovers.AlignOrientation = hrp:FindFirstChildWhichIsA("AlignOrientation")
@@ -320,6 +339,10 @@ function MovementController:Destroy()
     if self.AnimationController then
         self.AnimationController:Destroy()
     end
+
+    --script:Destroy()
+
+    print("cleanup.")
 end
 
 return MovementController

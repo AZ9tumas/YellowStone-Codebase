@@ -6,88 +6,105 @@ local RunService = game:GetService("RunService")
 local ContextActionService = game:GetService("ContextActionService")
 
 local player = Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local hrp = char:WaitForChild("HumanoidRootPart")
 local camera = workspace.CurrentCamera
 local starterGui = player.PlayerGui
-local MechanicsUi = starterGui:WaitForChild("MechanicsUI")
 
-local MovementController = require(script.MovementController)
-
-local ScreenGui = starterGui:WaitForChild("Menu")
-local statsFrame: Frame = ScreenGui:WaitForChild("Frame")
-local attackLabel: TextLabel = statsFrame:WaitForChild("Attack")
-
--- modules
+-- Modules
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local packets = require(modules:WaitForChild("Packets"))
+local MovementController = require(script.MovementController)
 
-local staminaProgress: Frame = MechanicsUi:WaitForChild("Background"):WaitForChild("Progress")
-local statsFolder = player:WaitForChild("PlayerStats")
-local staminaValue: NumberValue = statsFolder:WaitForChild("Stamina")
-local MechanicToggleFrame = MechanicsUi:WaitForChild("MechanicToggleFrame")
-local WalkLabel: TextLabel = MechanicToggleFrame:WaitForChild("Walk")
-local SprintLabel: TextLabel = MechanicToggleFrame:WaitForChild("Sprint")
+-- Variables that need to be re-initialized
+local controller = nil
+local staminaConnection = nil
+local inputConnection = nil
+local renderConnection = nil
+local attackReturnConnection = nil
 
-local controller = MovementController.new(player, camera, packets)
-
-staminaValue.Changed:Connect(function()
-	local tw = TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-	TweenService:Create(staminaProgress, tw, {Size = UDim2.new(1, 0, staminaValue.Value, 0)}):Play()
-end)
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-
-	if input.KeyCode == Enum.KeyCode.Z then
-		local newState = controller:ToggleWalkingStyle()
-		WalkLabel.Text = newState
-
-	elseif input.KeyCode == Enum.KeyCode.X then
-		local newState = controller:ToggleRunningStyle()
-		SprintLabel.Text = newState
-
-	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
-		packets.attack.send()
-		attackLabel.Text = "Attacking..."
-	end
-end)
-
-packets.attackReturn.listen(function(data)
-	attackLabel.Text = "Attack: " .. string.format("%.2f", data)
-end)
-
-RunService:BindToRenderStep("MechanicMovement", Enum.RenderPriority.Character.Value + 1, function(dt)
-	controller:Update(dt)
-end)
-
-local function setupBindings()
-	ContextActionService:BindAction("MoveForward", function(...) controller:UpdateMoveDir(...) end, true, Enum.KeyCode.W, Enum.KeyCode.Up)
-	ContextActionService:BindAction("MoveBackward", function(...) controller:UpdateMoveDir(...) end, true, Enum.KeyCode.S, Enum.KeyCode.Down)
-	ContextActionService:BindAction("RotateLeft", function(...) controller:HandleRotation(...) end, true, Enum.KeyCode.A, Enum.KeyCode.Left)
-	ContextActionService:BindAction("RotateRight", function(...) controller:HandleRotation(...) end, true, Enum.KeyCode.D, Enum.KeyCode.Right)
-
-	ContextActionService:SetTitle("MoveForward", "Forward")
-	ContextActionService:SetTitle("MoveBackward", "Backward")
-	ContextActionService:SetTitle("RotateLeft", "Left")
-	ContextActionService:SetTitle("RotateRight", "Right")
-end
---setupBindings()
-
-local function cleanup()
-	RunService:UnbindFromRenderStep("MechanicMovement")
-	
-	ContextActionService:UnbindAction("MoveForward")
-	ContextActionService:UnbindAction("MoveBackward")
-	ContextActionService:UnbindAction("RotateLeft")
-	ContextActionService:UnbindAction("RotateRight")
-	
-	-- Cleanup controller resources (state manager and animation controller)
+local function Cleanup()
 	if controller then
 		controller:Destroy()
+		controller = nil
 	end
+	
+	if staminaConnection then staminaConnection:Disconnect() staminaConnection = nil end
+	if inputConnection then inputConnection:Disconnect() inputConnection = nil end
+	if renderConnection then renderConnection:Disconnect() renderConnection = nil end
+	if attackReturnConnection then attackReturnConnection:Disconnect() attackReturnConnection = nil end
 end
 
-player.CharacterRemoving:Connect(function()
-	cleanup()
-end)
+local function Initialize(data)
+	Cleanup()
+	
+	local char = player.Character
+	if not char then return end
+	
+	-- Check if it's a valid character (e.g. has HumanoidRootPart)
+	local hrp = char:WaitForChild("HumanoidRootPart")
+	local hum = char:WaitForChild("Humanoid")
+	
+	if not hrp or not hum then
+		warn("Invalid character for mechanics initialization")
+		return
+	end
+
+	-- UI Setup
+	local MechanicsUi = starterGui:WaitForChild("MechanicsUI", 5)
+	if not MechanicsUi then return end
+	
+	local staminaProgress = MechanicsUi:WaitForChild("Background"):WaitForChild("Progress")
+	local MechanicToggleFrame = MechanicsUi:WaitForChild("MechanicToggleFrame")
+	local WalkLabel = MechanicToggleFrame:WaitForChild("Walk")
+	local SprintLabel = MechanicToggleFrame:WaitForChild("Sprint")
+	
+	local ScreenGui = starterGui:WaitForChild("Menu", 5)
+	local statsFrame = ScreenGui and ScreenGui:WaitForChild("Frame")
+	local attackLabel = statsFrame and statsFrame:WaitForChild("Attack")
+	
+	local statsFolder = player:WaitForChild("PlayerStats", 5)
+	local staminaValue = statsFolder and statsFolder:WaitForChild("Stamina")
+
+	-- Controller
+	controller = MovementController.new(player, camera, packets)
+	
+	-- Connections
+	if staminaValue then
+		staminaConnection = staminaValue.Changed:Connect(function()
+			local tw = TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+			TweenService:Create(staminaProgress, tw, {Size = UDim2.new(1, 0, staminaValue.Value, 0)}):Play()
+		end)
+	end
+	
+	inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+
+		if input.KeyCode == Enum.KeyCode.Z then
+			if controller then
+				local newState = controller:ToggleWalkingStyle()
+				if WalkLabel then WalkLabel.Text = newState end
+			end
+
+		elseif input.KeyCode == Enum.KeyCode.X then
+			if controller then
+				local newState = controller:ToggleRunningStyle()
+				if SprintLabel then SprintLabel.Text = newState end
+			end
+
+		elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+			packets.attack.send()
+			if attackLabel then attackLabel.Text = "Attacking..." end
+		end
+	end)
+	
+	attackReturnConnection = packets.attackReturn.listen(function(dmg)
+		if attackLabel then attackLabel.Text = "Attack: " .. string.format("%.2f", dmg) end
+	end)
+	
+	renderConnection = RunService.RenderStepped:Connect(function(dt)
+		if controller then controller:Update(dt) end
+	end)
+
+	print("Client scripts successfully initialized.")
+end
+
+packets.initClientScripts.listen(Initialize)
