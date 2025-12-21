@@ -126,11 +126,11 @@ return {
 			["HealthAttackCost"] = 0.2,
 
 			["Animations"] = {
-				["Idle"] = "rbxassetid://122354167240358",
-				["Walk"] = "rbxassetid://78416478020514",
-				["Trot"] = "rbxassetid://115522221508138",
-				["Run"] = "rbxassetid://130969140443746",
-				["Sprint"] = "rbxassetid://137863725830650",
+				["Idle"] = "rbxassetid://129340490638132",
+				["Walk"] = "rbxassetid://97341094250554",
+				["Trot"] = "rbxassetid://88285359887554",
+				["Run"] = "rbxassetid://128103557572394",
+				["Sprint"] = "rbxassetid://112573917060283",
 			}
 		},
 		["Female"] = {
