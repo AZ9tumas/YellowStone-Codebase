@@ -177,8 +177,6 @@ function module.InitChar(plr: Player, charName: string, gender: string)
     if not hum then return false, "No humanoid" end
 
     hum.WalkSpeed = charInfo.WalkSpeed
-
-    print("Set default walkspeed to", charInfo.WalkSpeed)
 end
 
 function module.AddBodyMovers(plr: Player)
@@ -260,8 +258,7 @@ function module.SetupAnimations(plr: Player, charName: string, gender: string)
         animation.AnimationId = animationId
         animation.Parent = animationsFolder
     end
-
-    print("SetupAnimations: Created animations folder for " .. plr.Name .. " with " .. #animationsFolder:GetChildren() .. " animations")
+    
     return true
 end
 
@@ -271,8 +268,6 @@ function module.Morph(plr: Player, charName: string, gender: string)
 
     local reqModel = modelsUnderGender:FindFirstChild(charName)
     if not reqModel then return false, "No such model" end
-
-    print(reqModel)
 
     local currChar = plr.Character
     local newChar = reqModel:Clone()

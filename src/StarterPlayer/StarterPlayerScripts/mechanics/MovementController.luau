@@ -15,9 +15,9 @@ function MovementController.new(player, camera, packets)
     local self = setmetatable({}, MovementController)
 
     local plrInfo = commonM.GetPlayerInfo(player)
-    print(plrInfo)
 
     self.Player = player
+    self.PlrInfo = plrInfo
     self.Camera = camera
     self.Packets = packets
 
@@ -59,7 +59,9 @@ function MovementController.new(player, camera, packets)
         CurrentTilt = 0,
         TiltSensitivity = plrInfo.TiltSensitivity or 0.8,
 
-        LastHumanoidRootPartCFrame = self.HumanoidRootPart and self.HumanoidRootPart.CFrame or CFrame.new()
+        LastHumanoidRootPartCFrame = self.HumanoidRootPart and self.HumanoidRootPart.CFrame or CFrame.new(),
+        
+        LastDesiredState = "Idle"
     }
 
     self.InputStateMap = {
@@ -75,8 +77,6 @@ function MovementController.new(player, camera, packets)
     self:SetupStateCallbacks()
     self:Init()
 
-    print(self)
-
     return self
 end
 
@@ -84,10 +84,6 @@ function MovementController:SetupStateCallbacks()
     self.StateManager:OnStateChanged(function(newState, oldState, stateConfig)
         if self.AnimationController then
             self.AnimationController:UpdateForState(newState)
-        end
-
-        if self.Packets then
-            self.Packets.sprint.send({sprintType = newState})
         end
     end)
 end
@@ -117,6 +113,44 @@ function MovementController:UpdateMoveDir(actionName, inputState, inputObject)
     local forward = self.InputStateMap.Forward and 1 or 0
     local backward = self.InputStateMap.Backward and 1 or 0
     self.Params.MoveDirection = forward - backward
+end
+
+function MovementController:ConstrainState(desiredState)
+	local hrp = self.HumanoidRootPart
+	if not hrp then return desiredState end
+
+	local vel = hrp.AssemblyLinearVelocity
+	local currentSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+
+	local info = self.PlrInfo or {}
+	local walkSpeed = info.WalkSpeed or 15
+	local trotSpeed = info.TrotSpeed or 28
+	
+	local threshold = 1.5
+
+	-- Determine max allowed state based on speed thresholds
+	-- Hierarchy: Walk -> Trot -> Run/Sprint
+	
+	local canRunOrSprint = currentSpeed >= (trotSpeed + threshold)
+	local canTrot = currentSpeed >= (walkSpeed + threshold)
+
+	if desiredState == "Sprint" then
+		if canRunOrSprint then
+			return "Sprint"
+		end
+	elseif desiredState == "Run" then
+		if canRunOrSprint then
+			return "Run"
+		end
+	end
+	
+	if desiredState == "Trot" or desiredState == "Sprint" or desiredState == "Run" then
+		if canTrot then
+			return "Trot"
+		end
+	end
+
+	return "Walk"
 end
 
 function MovementController:UpdateMovement(dt)
@@ -198,35 +232,48 @@ function MovementController:UpdateStates(dt)
     -- on state change
     local params = self.Params
     local laststate = params.CurrentState
-    local hum = self.Humanoid
-    local newState = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+    
+    -- 1. Determine Desired State (Input)
+    local desiredState = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
         and params.CurrentRunningStyle or params.CurrentWalkingStyle
     local moveVector = self.ControlModule:GetMoveVector()
 
     if moveVector.Magnitude <= 0 then
-        -- handle no-momentum states
-        newState = "Idle"
+        desiredState = "Idle"
     else
         params.MomentumActive = false
     end
 
-    if laststate ~= newState then
+    -- 2. Send Packet if Desired State Changed (Network)
+    if params.LastDesiredState ~= desiredState then
+        params.LastDesiredState = desiredState
+        if self.Packets then
+             self.Packets.sprint.send({sprintType = desiredState})
+        end
+    end
+
+    -- 3. Determine Constrained State (Visual/Local)
+    local targetState = desiredState
+    if desiredState ~= "Idle" then
+        targetState = self:ConstrainState(desiredState)
+    end
+
+    -- 4. Transition Logic
+    if laststate ~= targetState then
         -- momentum enabled only when we are transitioning to idle, and we aren't already
         -- in momentum.
-        if newState == "Idle" and params.CurrentState ~= "Idle" then
+        if targetState == "Idle" and params.CurrentState ~= "Idle" then
             if not params.MomentumActive then
                 params.MomentumActive = true
                 params.MomentumStartTime = os.clock()
-                print("Momentum enabled")
 
                 params.CurrentState = "Walk"
                 self.StateManager:TransitionTo("Walk")
             end
-        else
+        elseif not params.MomentumActive then
             -- handle idle separately.
-            params.CurrentState = newState
+            params.CurrentState = targetState
             local success = self.StateManager:TransitionTo(params.CurrentState)
-            if success then print("Transitioned to state: " .. params.CurrentState) end
         end
     end
 
@@ -244,9 +291,6 @@ function MovementController:UpdateStates(dt)
         else
             params.MomentumActive = false
             if moveVector.Magnitude <= 0 then
-                -- no genuine movement input, go to idle most likely
-                print("Genuine idle set")
-                -- Set idle state here.
                 params.CurrentState = "Idle"
                 self.StateManager:TransitionTo("Idle")
             end
@@ -292,10 +336,41 @@ function MovementController:UpdatePhysicsControllers(dt)
     self.BodyMovers.AlignOrientation.CFrame = lookCF * CFrame.Angles(0, 0, params.CurrentTilt)
 end
 
+function MovementController:UpdateAnimationSpeed(dt)
+	local char = self.Player.Character
+	if not char then return end
+	local hrp = self.HumanoidRootPart
+	if not hrp then return end
+
+	local vel = hrp.AssemblyLinearVelocity
+	local currentSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+
+	local currentState = self.Params.CurrentState
+	if currentState == "Idle" then
+		if self.AnimationController then
+			self.AnimationController:SetAnimationSpeed("Idle", 1)
+		end
+		return
+	end
+
+	local info = self.PlrInfo or {}
+	local targetSpeed = info[currentState .. "Speed"]
+
+	if targetSpeed and targetSpeed > 0 then
+		local ratio = currentSpeed / targetSpeed
+		ratio = math.clamp(ratio, 0.5, 1.2)
+
+		if self.AnimationController then
+			self.AnimationController:SetAnimationSpeed(currentState, ratio)
+		end
+	end
+end
+
 function MovementController:Update(dt)
     self:UpdateMovement(dt)
     self:UpdateStates(dt)
     self:UpdatePhysicsControllers(dt)
+    self:UpdateAnimationSpeed(dt)
 end
 
 function MovementController:ToggleWalkingStyle()
