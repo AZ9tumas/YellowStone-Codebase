@@ -46,6 +46,8 @@ function MovementController.new(player, camera, packets)
         BaseTurnRate = plrInfo.BaseTurnRate or 4,
         TurnSpeedDecay = plrInfo.TurnSpeedDecay or 0.08,
         TurnBrakeSensitivity = plrInfo.TurnBrakeSensitivity or 2.5,
+        TurnRateMultiplier = plrInfo.TurnRateMultiplier or 2.5,
+        TurnSpeedDecayMultiplier = plrInfo.TurnSpeedDecayMultiplier or 0.3,
 
         -- Momentum Params
         MomentumActive = false,
@@ -190,10 +192,10 @@ function MovementController:UpdateMovement(dt)
         local currentSpeed = hrp.AssemblyLinearVelocity.Magnitude
         
         -- Base turn rate is higher for deer-like agility
-        local baseTurnRate = params.BaseTurnRate * 2.5
+        local baseTurnRate = params.BaseTurnRate * params.TurnRateMultiplier
         
         -- Speed affects turn rate less aggressively for deer movement
-        local speedFactor = 1 / (1 + (currentSpeed * params.TurnSpeedDecay * 0.3))
+        local speedFactor = 1 / (1 + (currentSpeed * params.TurnSpeedDecay * params.TurnSpeedDecayMultiplier))
         local maxTurnRate = baseTurnRate * speedFactor
         
         local maxStep = maxTurnRate * dt
