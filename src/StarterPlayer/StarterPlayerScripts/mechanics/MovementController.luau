@@ -257,14 +257,19 @@ function MovementController:UpdateStates(dt)
         targetState = self:ConstrainState(desiredState)
     end
 
-    if targetState == "Idle" and params.CurrentState ~= "Idle" and params.MomentumActive == false then
+    -- Momentum only activates for Run and Sprint states (not Walk or Trot).
+    -- While momentum is active, maintain the previous state to keep correct animation.
+    local canUseMomentum = params.CurrentState == "Run" or params.CurrentState == "Sprint"
+    if targetState == "Idle" and params.CurrentState ~= "Idle" and params.MomentumActive == false and canUseMomentum then
         params.MomentumActive = true
         params.MomentumStartTime = os.clock()
+        params.MomentumFromState = params.CurrentState -- Remember the state we came from
 
-        params.CurrentState = "Walk"
-        self.StateManager:TransitionTo("Walk")
-
-        targetState = "Walk"
+        -- Don't change state during momentum - keep current Run/Sprint state for correct animation
+        targetState = params.CurrentState
+    elseif params.MomentumActive then
+        -- While momentum is active, prevent state from changing to Idle
+        targetState = params.MomentumFromState or params.CurrentState
     end
 
     -- on state change...
@@ -300,7 +305,9 @@ function MovementController:UpdateStates(dt)
                 hum:Move(momentumDirection * momentumFactor)
             end
         else
+            -- Momentum has ended, now transition to Idle
             params.MomentumActive = false
+            params.MomentumFromState = nil
             if moveVector.Magnitude <= 0 then
                 params.CurrentState = "Idle"
                 self.StateManager:TransitionTo("Idle")
