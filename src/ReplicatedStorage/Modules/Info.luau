@@ -92,17 +92,17 @@ return {
 	["MuleDeer"] = {
 		["Male"] = {
 			["IdleSpeed"] = 0,
-			["WalkSpeed"] = 15,
-			["TrotSpeed"] = 28,
-			["RunSpeed"] = 42,
-			["SprintSpeed"] = 55,
+			["WalkSpeed"] = 7,
+			["TrotSpeed"] = 16,
+			["RunSpeed"] = 35,
+			["SprintSpeed"] = 52,
 
 			["MaxStamina"] = 100,
-			["RunStaminaDrain"] = 8,
-			["SprintStaminaDrain"] = 25,
+			["RunStaminaDrain"] = 0.5,
+			["SprintStaminaDrain"] = 2,
 
-			["TrotStaminaGain"] = 5,
-			["WalkStaminaGain"] = 10,
+			["TrotStaminaGain"] = 4,
+			["WalkStaminaGain"] = 7,
 			["IdleStaminaGain"] = 15,
 
 			-- When low on health (below threshold), max reduction in speed (penalty).
@@ -110,18 +110,18 @@ return {
 			["StaminaPenaltyThreshold"] = 0.5,
 			["HealthPenaltyThreshold"] = 0.5,
 
-			["Acceleration"] = 25,
-			["Deceleration"] = 10,
+			["Acceleration"] = 60,
+			["Deceleration"] = 20,
 
-			["BaseTurnRate"] = 3.5,        -- Slower turning circle when stopped
+			["BaseTurnRate"] = 10,        -- Slower turning circle when stopped
 			["TurnSpeedDecay"] = 0.1,      -- Speed reduces turn ability significantly
-			["TurnBrakeSensitivity"] = 3.0, -- Brakes hard when trying to turn sharp (not implemented yet)
+			["TurnBrakeSensitivity"] = 8.0, -- Brakes hard when trying to turn sharp (not implemented yet)
 
 			["MaxTiltAngle"] = 20,
-			["TiltSensitivity"] = 0.8,
+			["TiltSensitivity"] = 0.5,
 			["TiltSpeed"] = 2,
 
-			["AttackDamage"] = 10,
+			["AttackDamage"] = 30,
 			["StaminaAttackCost"] = 0.2,
 			["HealthAttackCost"] = 0.2,
 

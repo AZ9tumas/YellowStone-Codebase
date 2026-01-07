@@ -193,6 +193,7 @@ function MovementController:UpdateMovement(dt)
         local maxStep = maxTurnRate * dt
 
         local cross = currentDir:Cross(targetDir)
+        -- Note that this is sign not sine, just some basic adjustments.
         local turnDirection = math.sign(cross.Y)
         if turnDirection == 0 then turnDirection = 1 end
 
@@ -233,18 +234,16 @@ function MovementController:UpdateStates(dt)
     local params = self.Params
     local laststate = params.CurrentState
     
-    -- 1. Determine Desired State (Input)
     local desiredState = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
         and params.CurrentRunningStyle or params.CurrentWalkingStyle
     local moveVector = self.ControlModule:GetMoveVector()
 
     if moveVector.Magnitude <= 0 then
-        desiredState = "Idle"
+        desiredState = params.MomentumActive and "Walk" or "Idle"
     else
         params.MomentumActive = false
     end
 
-    -- 2. Send Packet if Desired State Changed (Network)
     if params.LastDesiredState ~= desiredState then
         params.LastDesiredState = desiredState
         if self.Packets then
@@ -252,16 +251,27 @@ function MovementController:UpdateStates(dt)
         end
     end
 
-    -- 3. Determine Constrained State (Visual/Local)
     local targetState = desiredState
     if desiredState ~= "Idle" then
         targetState = self:ConstrainState(desiredState)
     end
 
-    -- 4. Transition Logic
+    if targetState == "Idle" and params.CurrentState ~= "Idle" and params.MomentumActive == false then
+        params.MomentumActive = true
+        params.MomentumStartTime = os.clock()
+
+        params.CurrentState = "Walk"
+        self.StateManager:TransitionTo("Walk")
+
+        targetState = "Walk"
+    end
+
+    -- on state change...
     if laststate ~= targetState then
-        -- momentum enabled only when we are transitioning to idle, and we aren't already
-        -- in momentum.
+        params.CurrentState = targetState
+        local success = self.StateManager:TransitionTo(params.CurrentState)
+
+        --[[
         if targetState == "Idle" and params.CurrentState ~= "Idle" then
             if not params.MomentumActive then
                 params.MomentumActive = true
@@ -274,7 +284,7 @@ function MovementController:UpdateStates(dt)
             -- handle idle separately.
             params.CurrentState = targetState
             local success = self.StateManager:TransitionTo(params.CurrentState)
-        end
+        end]]
     end
 
     -- Momentum
@@ -339,7 +349,7 @@ end
 function MovementController:UpdateAnimationSpeed(dt)
 	local char = self.Player.Character
 	if not char then return end
-	local hrp = self.HumanoidRootPart
+	local hrp : BasePart = self.HumanoidRootPart
 	if not hrp then return end
 
 	local vel = hrp.AssemblyLinearVelocity

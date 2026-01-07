@@ -115,7 +115,7 @@ function module.UpdateStamina(plr: Player, dt: number)
         plrStamina.Value = newStaminaPoints / stuff.MaxStamina
 
         if plrStamina.Value < stuff.StaminaPenaltyThreshold then
-            finalSpeed = trotSpeed + (reqSpeed - trotSpeed) * plrStamina.Value
+            finalSpeed = trotSpeed + (reqSpeed - trotSpeed) * (plrStamina.Value / stuff.StaminaPenaltyThreshold)
             if stateType == "Sprint" then
                 finalSpeed += trotSpeed * pdiff * (if plrStamina.Value > 0 then 1 else 0)
             end
