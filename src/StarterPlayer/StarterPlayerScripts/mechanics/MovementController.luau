@@ -154,8 +154,8 @@ function MovementController:ConstrainState(desiredState)
 end
 
 function MovementController:UpdateMovement(dt)
-    -- This only does the turning. Nothing else. Here, the major
-    -- "setter" is Humanoid:Move(dir) and the rest is just calculating
+    -- Deer-like movement: responsive direction changes, the character moves
+    -- in the direction you input rather than sliding like a car.
     local char = self.Player.Character
     if not char then return end
     local hum: Humanoid = self.Humanoid
@@ -168,7 +168,7 @@ function MovementController:UpdateMovement(dt)
     local targetDir = Vector3.new()
     
     if moveVector.Magnitude > 0 then
-        -- get the absolute target direction (relative to world)
+        -- Get the absolute target direction (relative to world)
         local camCF = self.Camera.CFrame
         targetDir = camCF:VectorToWorldSpace(moveVector)
         targetDir = Vector3.new(targetDir.X, 0, targetDir.Z) -- Flatten Y
@@ -179,21 +179,26 @@ function MovementController:UpdateMovement(dt)
         targetDir = params.CurrentFacingDirection
     end
 
-    local currentSpeed = hrp.AssemblyLinearVelocity.Magnitude
-    local maxTurnRate = params.BaseTurnRate / (1 + (currentSpeed * params.TurnSpeedDecay))
-
     local currentDir: Vector3 = params.CurrentFacingDirection
     local dot = math.clamp(currentDir:Dot(targetDir), -1, 1)
-    -- Here, angleDiff is the final angle difference between current
-    -- direction and the final target direction.
     local angleDiff = math.acos(dot)
-    local brakeFactor = 1 / (1 + (angleDiff * params.TurnBrakeSensitivity))
 
     if moveVector.Magnitude > 0 and angleDiff > 0.001 then
+        -- Deer-like turning: much more responsive than a vehicle.
+        -- Turn rate is high at low speeds, somewhat reduced at high speeds, 
+        -- but still responsive enough for quick direction changes.
+        local currentSpeed = hrp.AssemblyLinearVelocity.Magnitude
+        
+        -- Base turn rate is higher for deer-like agility
+        local baseTurnRate = params.BaseTurnRate * 2.5
+        
+        -- Speed affects turn rate less aggressively for deer movement
+        local speedFactor = 1 / (1 + (currentSpeed * params.TurnSpeedDecay * 0.3))
+        local maxTurnRate = baseTurnRate * speedFactor
+        
         local maxStep = maxTurnRate * dt
 
         local cross = currentDir:Cross(targetDir)
-        -- Note that this is sign not sine, just some basic adjustments.
         local turnDirection = math.sign(cross.Y)
         if turnDirection == 0 then turnDirection = 1 end
 
@@ -203,9 +208,12 @@ function MovementController:UpdateMovement(dt)
     end
 
     if moveVector.Magnitude > 0 then
-        hum:Move(params.CurrentFacingDirection)
-        -- handle momentum
-        --params.MomentumActive = false
+        -- Key change for deer movement: Move in the direction the player wants
+        -- to go (target direction), not the current facing direction.
+        -- This eliminates the "sliding/drifting" car-like behavior.
+        -- The facing direction updates smoothly via the AlignOrientation,
+        -- but actual movement follows input direction directly.
+        hum:Move(targetDir)
     else
         hum:Move(Vector3.zero)
     end
