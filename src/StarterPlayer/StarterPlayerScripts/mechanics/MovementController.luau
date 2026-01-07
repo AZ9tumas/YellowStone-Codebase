@@ -187,10 +187,22 @@ function MovementController:UpdateMovement(dt)
     -- Here, angleDiff is the final angle difference between current
     -- direction and the final target direction.
     local angleDiff = math.acos(dot)
-    local brakeFactor = 1 / (1 + (angleDiff * params.TurnBrakeSensitivity))
+    
+    -- Enhanced brake factor: stronger deceleration at higher speeds during sharp turns.
+    -- This reduces sliding by making the speed reduction more aggressive when both
+    -- the turn is sharp AND the character is moving fast.
+    local speedFactor = math.clamp(currentSpeed / 30, 0, 1) -- Normalize speed (0-1 range)
+    local baseBrakeFactor = 1 / (1 + (angleDiff * params.TurnBrakeSensitivity))
+    -- Apply stronger braking at higher speeds: reduce the brake factor further when moving fast
+    local brakeFactor = baseBrakeFactor * (1 - (speedFactor * angleDiff * 0.15))
+    brakeFactor = math.clamp(brakeFactor, 0.05, 1) -- Minimum 5% movement to prevent complete freeze
 
     if moveVector.Magnitude > 0 and angleDiff > 0.001 then
-        local maxStep = maxTurnRate * dt
+        -- Increase turn rate for sharper turns - helps character align faster with desired direction
+        -- reducing the time spent moving in the "wrong" direction (which causes sliding feel)
+        local turnBoost = 1 + (angleDiff * 0.5) -- Up to ~2.5x faster turn for 180° turns
+        local boostedTurnRate = maxTurnRate * turnBoost
+        local maxStep = boostedTurnRate * dt
 
         local cross = currentDir:Cross(targetDir)
         -- Note that this is sign not sine, just some basic adjustments.
