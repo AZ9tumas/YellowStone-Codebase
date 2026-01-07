@@ -252,7 +252,7 @@ function MovementController:UpdateStates(dt)
     local moveVector = self.ControlModule:GetMoveVector()
 
     if moveVector.Magnitude <= 0 then
-        desiredState = params.MomentumActive and "Walk" or "Idle"
+        desiredState = params.MomentumActive and (params.MomentumFromState or "Walk") or "Idle"
     else
         params.MomentumActive = false
     end
