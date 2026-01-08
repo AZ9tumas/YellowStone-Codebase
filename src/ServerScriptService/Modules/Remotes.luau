@@ -101,7 +101,7 @@ function module.UpdateStamina(plr: Player, dt: number)
     -- Base deceleration
     local finalDeceleration = stuff.Deceleration
     if stateType == "Idle" then
-        finalDeceleration = humanoid.WalkSpeed * 1.5
+        finalDeceleration *= stuff.SprintSpeed * 1.5
     end
     
     -- Calculate target speed based on Stamina/State
