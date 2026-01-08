@@ -218,9 +218,9 @@ function MovementController:UpdateMovement(dt)
         -- Apply brake factor to reduce speed during sharp turns (deer-like movement).
         -- When turning sharply, legs must plant and push off in a new direction,
         -- causing a natural deceleration/"jerk" effect unlike wheels which roll continuously.
-        hum:Move(params.CurrentFacingDirection * brakeFactor)
+        --hum:Move(params.CurrentFacingDirection * brakeFactor)
     else
-        hum:Move(Vector3.zero)
+        --hum:Move(Vector3.zero)
     end
 end
 
@@ -252,8 +252,9 @@ function MovementController:UpdateStates(dt)
     local moveVector = self.ControlModule:GetMoveVector()
 
     if moveVector.Magnitude <= 0 then
-        desiredState = params.MomentumActive and (params.MomentumFromState or "Walk") or "Idle"
+        desiredState = params.MomentumActive and "Walk" or "Idle"
     else
+        -- reset on player input
         params.MomentumActive = false
     end
 
@@ -275,13 +276,11 @@ function MovementController:UpdateStates(dt)
     if targetState == "Idle" and params.CurrentState ~= "Idle" and params.MomentumActive == false and canUseMomentum then
         params.MomentumActive = true
         params.MomentumStartTime = os.clock()
-        params.MomentumFromState = params.CurrentState -- Remember the state we came from
 
         -- Don't change state during momentum - keep current Run/Sprint state for correct animation
-        targetState = params.CurrentState
-    elseif params.MomentumActive then
-        -- While momentum is active, prevent state from changing to Idle
-        targetState = params.MomentumFromState or params.CurrentState
+        targetState = "Walk"
+        self.StateManager:TransitionTo(targetState)
+        params.CurrentState = "Walk"
     end
 
     -- on state change...
@@ -319,8 +318,11 @@ function MovementController:UpdateStates(dt)
         else
             -- Momentum has ended, now transition to Idle
             params.MomentumActive = false
-            params.MomentumFromState = nil
-            if moveVector.Magnitude <= 0 then
+            
+            local vel = self.HumanoidRootPart.AssemblyLinearVelocity
+            local currentSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+
+            if currentSpeed <= 0 then
                 params.CurrentState = "Idle"
                 self.StateManager:TransitionTo("Idle")
             end
