@@ -23,6 +23,8 @@ local horise: TextButton = ScreenGui:WaitForChild("Horsie")
 local muleDeer: TextButton = ScreenGui:WaitForChild("MuleDeer")
 local statsFrame: Frame = ScreenGui:WaitForChild("Frame")
 local fadeFrame: Frame = ScreenGui:WaitForChild("Transition")
+local HungerText: TextBox = statsFrame:WaitForChild("Food_Thirst"):WaitForChild("Hunger")
+local ThirstText: TextBox = statsFrame:WaitForChild("Food_Thirst"):WaitForChild("Thirst")
 
 local staminaValue: NumberValue = player:WaitForChild("PlayerStats"):WaitForChild("Stamina")
 
@@ -93,6 +95,12 @@ local function updateStats()
 		local info = commonM.GetPlayerInfo(player)
 		if info.MaxStamina then
 			statsFrame.Stamina.Text = "Stamina: " .. tostring(staminaValue.Value * info.MaxStamina):match("^(%d+)")
+		end
+		if char:GetAttribute("Hunger") and char:GetAttribute("Thirst") then
+			HungerText.Text = "Hunger: " .. tostring(math.ceil(char:GetAttribute("Hunger")))
+			ThirstText.Text = "Thirst: " .. tostring(math.ceil(char:GetAttribute("Thirst")))
+		else
+			warn("Hunger, Thirst, or both are missing attributes from this character.")
 		end
 	end
 end

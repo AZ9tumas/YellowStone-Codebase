@@ -1,4 +1,6 @@
+--// Services
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,11 +10,18 @@ local ContextActionService = game:GetService("ContextActionService")
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 local starterGui = player.PlayerGui
+--// Events
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local HealthModifier: RemoteEvent = Remotes:WaitForChild("HealthModifier")
 
 -- Modules
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local packets = require(modules:WaitForChild("Packets"))
 local MovementController = require(script.MovementController)
+local FoodWaterCycle = require(script.FoodWaterCycle)
+
+--// ChildScripts
+local HUDMasterScript = script.HUDMasterScript
 
 -- Variables that need to be re-initialized
 local controller = nil
@@ -20,6 +29,17 @@ local staminaConnection = nil
 local inputConnection = nil
 local renderConnection = nil
 local attackReturnConnection = nil
+
+-- Food/Water Variables
+local FoodWaterCycle_Interval = 1
+local CurrentHungerValue: number = 1
+local CurrentThirstValue: number = 1
+local IsEating: boolean = false
+local IsDrinking: boolean = false
+
+local HerbivoreFoodSources: Folder = Workspace:WaitForChild("HerbivoreFoodSources")
+local DrinkableWaterSources: Folder = Workspace:WaitForChild("DrinkableWaterSources")
+
 
 local function Cleanup()
 	if controller then
@@ -35,13 +55,12 @@ end
 
 local function Initialize(data)
 	Cleanup()
-	
-	local char = player.Character
+	local char = player.Character or player.CharacterAdded:Wait()
+	local hrp = char
+	local hum = char:WaitForChild("Humanoid")
 	if not char then return end
 	
 	-- Check if it's a valid character (e.g. has HumanoidRootPart)
-	local hrp = char:WaitForChild("HumanoidRootPart")
-	local hum = char:WaitForChild("Humanoid")
 	
 	if not hrp or not hum then
 		warn("Invalid character for mechanics initialization")
@@ -97,14 +116,87 @@ local function Initialize(data)
 	end)
 	
 	attackReturnConnection = packets.attackReturn.listen(function(dmg)
-		if attackLabel then attackLabel.Text = "Attack: " .. string.format("%.2f", dmg) end
+		print(attackLabel,"AttackLabel")
+		if attackLabel then attackLabel.Text = "Attack: " .. string.fom("%.2f", dmg) end
 	end)
 	
 	renderConnection = RunService.RenderStepped:Connect(function(dt)
 		if controller then controller:Update(dt) end
 	end)
-
+	
 	print("Client scripts successfully initialized.")
 end
 
+
+
 packets.initClientScripts.listen(Initialize)
+HUDMasterScript.Enabled = true
+
+--// Variables
+local char = player.Character
+local Humanoid = char:WaitForChild("Humanoid")
+local FoodWaterDetector = char:WaitForChild("FoodWaterDetector")
+
+--// ContextActionService Binding
+ContextActionService:BindActionAtPriority("Eat/Drink", function(ActionName,InputState,InputType)
+	if InputState == Enum.UserInputState.Begin then
+		local Character = player.Character
+		local HRP: Part = Character:FindFirstChild("HumanoidRootPart",true)
+		if HRP then
+			local DetectionParams = OverlapParams.new()
+			DetectionParams.FilterDescendantsInstances = {HerbivoreFoodSources,DrinkableWaterSources}
+			DetectionParams.FilterType = Enum.RaycastFilterType.Include
+			local Food_WaterScan = workspace:GetPartsInPart(FoodWaterDetector,DetectionParams)
+			for _,v in Food_WaterScan do
+				if v:GetAttribute("HerbivoreFood") and Humanoid.MoveDirection.Magnitude == 0 then
+					print("Food Detected")
+					IsEating = true
+					repeat task.wait() until Humanoid.MoveDirection.Magnitude > 0
+					IsEating = false
+					break
+				elseif v:GetAttribute("DrinkableWaterSource") and Humanoid.MoveDirection.Magnitude == 0 then
+					print("Water Detected")
+					IsDrinking = true
+					repeat task.wait() until Humanoid.MoveDirection.Magnitude > 0
+					IsDrinking = false
+					break
+				end
+			end
+		end
+	elseif InputState == Enum.UserInputState.End then
+		IsEating,IsDrinking = false,false
+	end
+end,false,2,Enum.KeyCode.E)
+
+--// Pre-loop commmands
+
+FoodWaterCycle.FoodWaterVariable_Initialise(char,FoodWaterCycle.FoodWaterCycle_Stats["ThirstMax"],FoodWaterCycle.FoodWaterCycle_Stats["HungerMax"])
+print(CurrentHungerValue,CurrentThirstValue)
+
+--// Loops
+--\\ Hunger/Thirst Cycle
+while task.wait(FoodWaterCycle_Interval) do
+	if char:GetAttribute("Thirst") and char:GetAttribute("Hunger") then
+
+		if IsDrinking == true then
+			char:SetAttribute("Thirst",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Thirst"),FoodWaterCycle.FoodWaterCycle_Stats["ThirstRegenRate"]))
+		else
+			char:SetAttribute("Thirst",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Thirst"),FoodWaterCycle.FoodWaterCycle_Stats["ThirstDecayRate"]))
+		end
+		
+		if IsEating == true then
+			char:SetAttribute("Hunger",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Hunger"),FoodWaterCycle.FoodWaterCycle_Stats["HungerRegenRate"]))
+		else
+			char:SetAttribute("Hunger",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Hunger"),FoodWaterCycle.FoodWaterCycle_Stats["HungerDecayRate"]))
+		end
+		
+		if char:GetAttribute("Hunger") == 0 then
+			HealthModifier:FireServer(Humanoid,FoodWaterCycle.FoodWaterCycle_Stats["HungerHealthDecay"])
+		end
+		
+		if char:GetAttribute("Thirst") == 0 then
+		HealthModifier:FireServer(Humanoid,FoodWaterCycle.FoodWaterCycle_Stats["ThirstHealthDecay"])
+		end
+	
+	end
+end

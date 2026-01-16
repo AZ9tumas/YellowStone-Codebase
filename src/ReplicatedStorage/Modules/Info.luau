@@ -110,12 +110,12 @@ return {
 			["StaminaPenaltyThreshold"] = 0.5,
 			["HealthPenaltyThreshold"] = 0.5,
 
-			["Acceleration"] = 80,
-			["Deceleration"] = 45,
+			["Acceleration"] = 30,
+			["Deceleration"] = 25,
 
-			["BaseTurnRate"] = 8,        -- Slower turning circle when stopped
+			["BaseTurnRate"] = 9,        -- Slower turning circle when stopped
 			["TurnSpeedDecay"] = 0.1,      -- Speed reduces turn ability significantly
-			["TurnBrakeSensitivity"] = 8.0, -- Brakes hard when trying to turn sharp
+			["TurnBrakeSensitivity"] = 8, -- Brakes hard when trying to turn sharp
 
 			["MaxTiltAngle"] = 20,
 			["TiltSensitivity"] = 0.5,
