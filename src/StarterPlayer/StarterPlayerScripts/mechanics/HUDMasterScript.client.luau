@@ -33,3 +33,5 @@ while Humanoid.Health > 0 do
 	UpdateStats()
 	task.wait(0.1)
 end
+
+print("h")
