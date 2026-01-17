@@ -124,8 +124,8 @@ local function Initialize(data)
 	end)
 	
 	attackReturnConnection = packets.attackReturn.listen(function(dmg)
-		print(attackLabel,"AttackLabel")
-		if attackLabel then attackLabel.Text = "Attack: " .. string.fom("%.2f", dmg) end
+		print(dmg,"damage var")
+		if attackLabel then attackLabel.Text = "Attack: " .. string.format("%.2f", dmg) end
 	end)
 	
 	renderConnection = RunService.RenderStepped:Connect(function(dt)
@@ -138,16 +138,22 @@ end
 
 
 packets.initClientScripts.listen(Initialize)
-HUDMasterScript.Enabled = true
+--HUDMasterScript.Enabled = true
 
 --// Variables
 local char = player.Character
 local Humanoid = char:WaitForChild("Humanoid")
 local FoodWaterDetector = char:WaitForChild("FoodWaterDetector")
+local Animator: Animator = Humanoid:WaitForChild("Animator")
+local E,D = script:WaitForChild("Eat"),script:WaitForChild("Drink")
+local EatAnim: AnimationTrack = Animator:LoadAnimation(E)
+local DrinkAnim: AnimationTrack = Animator:LoadAnimation(D)
+EatAnim.Priority,DrinkAnim.Priority = Enum.AnimationPriority.Action,Enum.AnimationPriority.Action
 
 --// ContextActionService Binding
 ContextActionService:BindActionAtPriority("Eat/Drink", function(ActionName,InputState,InputType)
 	if InputState == Enum.UserInputState.Begin then
+		if EatAnim.IsPlaying == true or DrinkAnim.IsPlaying == true then return end
 		local Character = player.Character
 		local HRP: Part = Character:FindFirstChild("HumanoidRootPart",true)
 		if HRP then
@@ -158,15 +164,27 @@ ContextActionService:BindActionAtPriority("Eat/Drink", function(ActionName,Input
 			for _,v in Food_WaterScan do
 				if v:GetAttribute("HerbivoreFood") and not IsPlayerMoving() then
 					print("Food Detected")
+					EatAnim:AdjustSpeed(1)
+					EatAnim:Play()
 					IsEating = true
-					repeat task.wait() until IsPlayerMoving()
-					IsEating = false
+					repeat task.wait() until IsPlayerMoving() or IsEating == false
+					EatAnim:Stop()
+					EatAnim:AdjustSpeed(-1)
+					EatAnim:Play()
+					task.wait(EatAnim.Length)
+					EatAnim:Stop()
 					break
 				elseif v:GetAttribute("DrinkableWaterSource") and not IsPlayerMoving() then
-					print("Water Detected")
+					print("WaterDetected")
+					DrinkAnim:AdjustSpeed(1)
+					DrinkAnim:Play()
 					IsDrinking = true
-					repeat task.wait() until IsPlayerMoving()
-					IsDrinking = false
+					repeat task.wait() until IsPlayerMoving() or IsDrinking == false
+					DrinkAnim:Stop()
+					DrinkAnim:AdjustSpeed(-1)
+					DrinkAnim:Play()
+					task.wait(DrinkAnim.Length)
+					DrinkAnim:Stop()
 					break
 				end
 			end
