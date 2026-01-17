@@ -20,6 +20,9 @@ local packets = require(modules:WaitForChild("Packets"))
 local MovementController = require(script.MovementController)
 local FoodWaterCycle = require(script.FoodWaterCycle)
 
+-- ControlModule for checking player movement input (used for custom movement system)
+local ControlModule = require(player.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
+
 --// ChildScripts
 local HUDMasterScript = script.HUDMasterScript
 
@@ -40,6 +43,11 @@ local IsDrinking: boolean = false
 local HerbivoreFoodSources: Folder = Workspace:WaitForChild("HerbivoreFoodSources")
 local DrinkableWaterSources: Folder = Workspace:WaitForChild("DrinkableWaterSources")
 
+-- Helper function to check if player is moving (uses ControlModule for custom movement system)
+local function IsPlayerMoving(): boolean
+	local moveVector = ControlModule:GetMoveVector()
+	return moveVector.Magnitude > 0
+end
 
 local function Cleanup()
 	if controller then
@@ -148,16 +156,16 @@ ContextActionService:BindActionAtPriority("Eat/Drink", function(ActionName,Input
 			DetectionParams.FilterType = Enum.RaycastFilterType.Include
 			local Food_WaterScan = workspace:GetPartsInPart(FoodWaterDetector,DetectionParams)
 			for _,v in Food_WaterScan do
-				if v:GetAttribute("HerbivoreFood") and Humanoid.MoveDirection.Magnitude == 0 then
+				if v:GetAttribute("HerbivoreFood") and not IsPlayerMoving() then
 					print("Food Detected")
 					IsEating = true
-					repeat task.wait() until Humanoid.MoveDirection.Magnitude > 0
+					repeat task.wait() until IsPlayerMoving()
 					IsEating = false
 					break
-				elseif v:GetAttribute("DrinkableWaterSource") and Humanoid.MoveDirection.Magnitude == 0 then
+				elseif v:GetAttribute("DrinkableWaterSource") and not IsPlayerMoving() then
 					print("Water Detected")
 					IsDrinking = true
-					repeat task.wait() until Humanoid.MoveDirection.Magnitude > 0
+					repeat task.wait() until IsPlayerMoving()
 					IsDrinking = false
 					break
 				end

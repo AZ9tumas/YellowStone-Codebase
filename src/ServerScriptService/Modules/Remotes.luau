@@ -200,7 +200,7 @@ function module.AddBodyMovers(plr: Player)
         newLv.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
         newLv.PlaneVelocity = Vector2.new(0, 0)
         newLv.Attachment0 = a1
-        newLv.Enabled = false
+        newLv.Enabled = true
     end
     
     if ao then
