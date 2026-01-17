@@ -26,8 +26,8 @@ packets.attack.listen(function(_, player)
 end)
 
 Players.PlayerAdded:Connect(function(plr)
-	--plr.DevComputerMovementMode = Enum.DevComputerMovementMode.Scriptable
-	--plr.DevTouchMovementMode = Enum.DevTouchMovementMode.Scriptable
+	plr.DevComputerMovementMode = Enum.DevComputerMovementMode.Scriptable
+	plr.DevTouchMovementMode = Enum.DevTouchMovementMode.Scriptable
 
 	remotesM.InitStats(plr)
 end)

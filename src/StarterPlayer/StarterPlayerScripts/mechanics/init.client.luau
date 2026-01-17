@@ -20,6 +20,9 @@ local packets = require(modules:WaitForChild("Packets"))
 local MovementController = require(script.MovementController)
 local FoodWaterCycle = require(script.FoodWaterCycle)
 
+-- ControlModule for checking player movement input (used for custom movement system)
+local ControlModule = require(player.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
+
 --// ChildScripts
 local HUDMasterScript = script.HUDMasterScript
 
@@ -40,6 +43,11 @@ local IsDrinking: boolean = false
 local HerbivoreFoodSources: Folder = Workspace:WaitForChild("HerbivoreFoodSources")
 local DrinkableWaterSources: Folder = Workspace:WaitForChild("DrinkableWaterSources")
 
+-- Helper function to check if player is moving (uses ControlModule for custom movement system)
+local function IsPlayerMoving(): boolean
+	local moveVector = ControlModule:GetMoveVector()
+	return moveVector.Magnitude > 0
+end
 
 local function Cleanup()
 	if controller then
@@ -116,8 +124,8 @@ local function Initialize(data)
 	end)
 	
 	attackReturnConnection = packets.attackReturn.listen(function(dmg)
-		print(attackLabel,"AttackLabel")
-		if attackLabel then attackLabel.Text = "Attack: " .. string.fom("%.2f", dmg) end
+		print(dmg,"damage var")
+		if attackLabel then attackLabel.Text = "Attack: " .. string.format("%.2f", dmg) end
 	end)
 	
 	renderConnection = RunService.RenderStepped:Connect(function(dt)
@@ -130,16 +138,22 @@ end
 
 
 packets.initClientScripts.listen(Initialize)
-HUDMasterScript.Enabled = true
+--HUDMasterScript.Enabled = true
 
 --// Variables
 local char = player.Character
 local Humanoid = char:WaitForChild("Humanoid")
 local FoodWaterDetector = char:WaitForChild("FoodWaterDetector")
+local Animator: Animator = Humanoid:WaitForChild("Animator")
+local E,D = script:WaitForChild("Eat"),script:WaitForChild("Drink")
+local EatAnim: AnimationTrack = Animator:LoadAnimation(E)
+local DrinkAnim: AnimationTrack = Animator:LoadAnimation(D)
+EatAnim.Priority,DrinkAnim.Priority = Enum.AnimationPriority.Action,Enum.AnimationPriority.Action
 
 --// ContextActionService Binding
 ContextActionService:BindActionAtPriority("Eat/Drink", function(ActionName,InputState,InputType)
 	if InputState == Enum.UserInputState.Begin then
+		if EatAnim.IsPlaying == true or DrinkAnim.IsPlaying == true then return end
 		local Character = player.Character
 		local HRP: Part = Character:FindFirstChild("HumanoidRootPart",true)
 		if HRP then
@@ -148,17 +162,29 @@ ContextActionService:BindActionAtPriority("Eat/Drink", function(ActionName,Input
 			DetectionParams.FilterType = Enum.RaycastFilterType.Include
 			local Food_WaterScan = workspace:GetPartsInPart(FoodWaterDetector,DetectionParams)
 			for _,v in Food_WaterScan do
-				if v:GetAttribute("HerbivoreFood") and Humanoid.MoveDirection.Magnitude == 0 then
+				if v:GetAttribute("HerbivoreFood") and not IsPlayerMoving() then
 					print("Food Detected")
+					EatAnim:AdjustSpeed(1)
+					EatAnim:Play()
 					IsEating = true
-					repeat task.wait() until Humanoid.MoveDirection.Magnitude > 0
-					IsEating = false
+					repeat task.wait() until IsPlayerMoving() or IsEating == false
+					EatAnim:Stop()
+					EatAnim:AdjustSpeed(-1)
+					EatAnim:Play()
+					task.wait(EatAnim.Length)
+					EatAnim:Stop()
 					break
-				elseif v:GetAttribute("DrinkableWaterSource") and Humanoid.MoveDirection.Magnitude == 0 then
-					print("Water Detected")
+				elseif v:GetAttribute("DrinkableWaterSource") and not IsPlayerMoving() then
+					print("WaterDetected")
+					DrinkAnim:AdjustSpeed(1)
+					DrinkAnim:Play()
 					IsDrinking = true
-					repeat task.wait() until Humanoid.MoveDirection.Magnitude > 0
-					IsDrinking = false
+					repeat task.wait() until IsPlayerMoving() or IsDrinking == false
+					DrinkAnim:Stop()
+					DrinkAnim:AdjustSpeed(-1)
+					DrinkAnim:Play()
+					task.wait(DrinkAnim.Length)
+					DrinkAnim:Stop()
 					break
 				end
 			end

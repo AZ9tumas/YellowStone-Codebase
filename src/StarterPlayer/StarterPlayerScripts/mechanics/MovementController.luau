@@ -101,6 +101,48 @@ function MovementController:Init()
     self.Params.CurrentFacingDirection = hrp.CFrame.LookVector
 end
 
+-- Custom Move method that replaces Humanoid:Move
+-- Uses LinearVelocity body mover for precise control and eliminates sliding issues
+function MovementController:Move(direction: Vector3)
+    local lv = self.BodyMovers.LinearVelocity
+    if not lv or not lv.Parent then
+        self.BodyMovers.LinearVelocity = self.HumanoidRootPart and self.HumanoidRootPart:FindFirstChildWhichIsA("LinearVelocity")
+        lv = self.BodyMovers.LinearVelocity
+    end
+    
+    if not lv then return end
+    
+    local hum = self.Humanoid
+    if not hum then return end
+    
+    -- Get target speed from humanoid's WalkSpeed (set by server based on state)
+    local targetSpeed = hum.WalkSpeed
+    
+    if direction.Magnitude > 0 then
+        local flatDir = Vector3.new(direction.X, 0, direction.Z)
+        if flatDir.Magnitude > 0 then
+            flatDir = flatDir.Unit
+        end
+        
+        -- Calculate velocity vector using direction and current walkspeed
+        local velocity = flatDir * targetSpeed
+        lv.PlaneVelocity = Vector2.new(velocity.X, velocity.Z)
+    else
+        lv.PlaneVelocity = Vector2.zero
+    end
+end
+
+-- Returns the current movement direction vector (for external scripts to check if moving)
+function MovementController:GetMoveDirection(): Vector3
+    local moveVector = self.ControlModule:GetMoveVector()
+    if moveVector.Magnitude > 0 then
+        local camCF = self.Camera.CFrame
+        local targetDir = camCF:VectorToWorldSpace(moveVector)
+        return Vector3.new(targetDir.X, 0, targetDir.Z).Unit
+    end
+    return Vector3.zero
+end
+
 function MovementController:UpdateMoveDir(actionName, inputState, inputObject)
     if inputState == Enum.UserInputState.Begin then
         if actionName == "MoveForward" then self.InputStateMap.Forward = true end
@@ -154,8 +196,8 @@ function MovementController:ConstrainState(desiredState)
 end
 
 function MovementController:UpdateMovement(dt)
-    -- This only does the turning. Nothing else. Here, the major
-    -- "setter" is Humanoid:Move(dir) and the rest is just calculating
+    -- This handles turning and movement. Uses custom Move() method with LinearVelocity
+    -- for precise control and to eliminate sliding issues with scaled models.
     local char = self.Player.Character
     if not char then return end
     local hum: Humanoid = self.Humanoid
@@ -218,9 +260,9 @@ function MovementController:UpdateMovement(dt)
         -- Apply brake factor to reduce speed during sharp turns (deer-like movement).
         -- When turning sharply, legs must plant and push off in a new direction,
         -- causing a natural deceleration/"jerk" effect unlike wheels which roll continuously.
-        --hum:Move(params.CurrentFacingDirection * brakeFactor)
+        self:Move(params.CurrentFacingDirection * brakeFactor)
     else
-        --hum:Move(Vector3.zero)
+        self:Move(Vector3.zero)
     end
 end
 
@@ -237,7 +279,7 @@ function MovementController:UpdateStates(dt)
            allows the character to keep moving slightly for a short duration.
            This is on paper obviously. In reality we choose to set "Idle" as the state
            and have an independent, non-state-dependent momentum system that
-           applies Humanoid:Move to the vector pointing to the last known facing direction.
+           uses MovementController:Move() to apply velocity to the last known facing direction.
 
            Although this may seem unprofessional, it allows us to keep the state machine
            simple and clean, while still achieving the desired momentum effect.
@@ -313,7 +355,7 @@ function MovementController:UpdateStates(dt)
         if momentumFactor > 0.01 then
             local momentumDirection = params.CurrentFacingDirection
             if momentumDirection.Magnitude > 0 then
-                hum:Move(momentumDirection * momentumFactor)
+                self:Move(momentumDirection * momentumFactor)
             end
         else
             -- Momentum has ended, now transition to Idle
