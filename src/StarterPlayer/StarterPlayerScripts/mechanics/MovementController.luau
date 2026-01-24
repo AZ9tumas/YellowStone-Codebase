@@ -67,6 +67,7 @@ function MovementController.new(player, camera, packets)
 		TerrainRaycastDistance = plrInfo.TerrainRaycastDistance or 10,
 		CurrentTerrainPitch = 0,
 		CurrentTerrainRoll = 0,
+		CurrentTerrainNormal = Vector3.yAxis,
 		LastTerrainCheckPosition = nil, -- Will be set on first terrain check
 		TerrainCheckThreshold = 2, -- Studs to move before rechecking terrain
 
@@ -445,60 +446,42 @@ function MovementController:UpdatePhysicsControllers(dt)
 
 	params.CurrentTilt = params.CurrentTilt + (targetTiltRad - params.CurrentTilt) * math.min(dt * params.TiltSpeed, 1)
 
-	-- Terrain Alignment: Calculate pitch and roll from terrain normal
+	-- Terrain Alignment
+	local targetNormal = Vector3.yAxis
+	
 	if params.TerrainAlignmentEnabled then
-		-- Calculate base vectors once
-		local upVector = Vector3.new(0, 1, 0)
-		local forwardDir = params.CurrentFacingDirection
-		local rightDir = forwardDir:Cross(upVector).Unit
+		targetNormal = self:DetectTerrainSlope()
 		
-		-- Only raycast if character has moved significantly (optimization)
-		local currentPos = hrp.Position
-		local distanceMoved = params.LastTerrainCheckPosition and (currentPos - params.LastTerrainCheckPosition).Magnitude or math.huge
-		local terrainNormal = Vector3.new(0, 1, 0)
-		
-		if distanceMoved >= params.TerrainCheckThreshold then
-			terrainNormal = self:DetectTerrainSlope()
-			params.LastTerrainCheckPosition = currentPos
-		else
-			-- Approximate terrain normal from stored angles (for smooth interpolation between checks)
-			local reconstructed = upVector - forwardDir * math.sin(params.CurrentTerrainPitch) - rightDir * math.sin(params.CurrentTerrainRoll)
-			if reconstructed.Magnitude > 0.01 then
-				terrainNormal = reconstructed.Unit
-			else
-				terrainNormal = upVector
+		-- Restriction: Clamp maximum terrain angle to reduce extreme tilting
+		-- targetNormal is restricted to not exceed max pitch angle from vertical (Y axis)
+		local maxAngle = math.rad(params.MaxTerrainPitch or 45)
+		local currentAngle = math.acos(math.clamp(targetNormal:Dot(Vector3.yAxis), -1, 1))
+
+		if currentAngle > maxAngle then
+			local axis = Vector3.yAxis:Cross(targetNormal)
+			if axis.Magnitude > 0.001 then
+				-- Rotate Up vector towards target only up to maxAngle
+				targetNormal = CFrame.fromAxisAngle(axis.Unit, maxAngle):VectorToWorldSpace(Vector3.yAxis)
 			end
 		end
-		
-		-- Project terrain normal onto forward and right planes to get pitch and roll
-		local pitchDot = terrainNormal:Dot(forwardDir)
-		local rollDot = terrainNormal:Dot(rightDir)
-		
-		-- Calculate terrain pitch (forward/backward slope)
-		local targetTerrainPitch = math.asin(math.clamp(-pitchDot, -1, 1))
-		
-		-- Calculate terrain roll (left/right slope)
-		local targetTerrainRoll = math.asin(math.clamp(rollDot, -1, 1))
-		
-		-- Clamp to max angles
-		local maxPitchRad = math.rad(params.MaxTerrainPitch)
-		local maxRollRad = math.rad(params.MaxTerrainRoll)
-		targetTerrainPitch = math.clamp(targetTerrainPitch, -maxPitchRad, maxPitchRad)
-		targetTerrainRoll = math.clamp(targetTerrainRoll, -maxRollRad, maxRollRad)
-		
-		-- Smoothly interpolate to target angles
-		params.CurrentTerrainPitch = params.CurrentTerrainPitch + (targetTerrainPitch - params.CurrentTerrainPitch) * math.min(dt * params.TerrainAlignmentSpeed, 1)
-		params.CurrentTerrainRoll = params.CurrentTerrainRoll + (targetTerrainRoll - params.CurrentTerrainRoll) * math.min(dt * params.TerrainAlignmentSpeed, 1)
-	else
-		params.CurrentTerrainPitch = 0
-		params.CurrentTerrainRoll = 0
+	end
+	
+	-- Smoothing: Reduce intensity of changes (Lerp)
+	local alpha = math.clamp(dt * (params.TerrainAlignmentSpeed or 3), 0, 1)
+	params.CurrentTerrainNormal = params.CurrentTerrainNormal:Lerp(targetNormal, alpha)
+	
+	local usedNormal = params.CurrentTerrainNormal
+
+	-- actual math
+	local rightVec = params.CurrentFacingDirection:Cross(usedNormal)
+	if rightVec.Magnitude < 0.001 then
+		rightVec = Vector3.xAxis -- Fallback
 	end
 
-	-- Apply Final CFrame to AlignOrientation (combine turning tilt and terrain alignment)
-	local lookCF = CFrame.lookAt(Vector3.zero, params.CurrentFacingDirection)
-	local terrainCF = CFrame.Angles(params.CurrentTerrainPitch, 0, params.CurrentTerrainRoll)
+	local targetCF = CFrame.fromMatrix(Vector3.zero, rightVec, usedNormal)
 	local tiltCF = CFrame.Angles(0, 0, params.CurrentTilt)
-	self.BodyMovers.AlignOrientation.CFrame = lookCF * terrainCF * tiltCF
+
+	self.BodyMovers.AlignOrientation.CFrame = targetCF * tiltCF
 end
 
 function MovementController:UpdateAnimationSpeed(dt)

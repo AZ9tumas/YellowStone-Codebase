@@ -38,7 +38,7 @@ return {
 			["TerrainAlignmentSpeed"] = 3,
 			["MaxTerrainPitch"] = 45,
 			["MaxTerrainRoll"] = 30,
-			["TerrainRaycastDistance"] = 10,
+			["TerrainRaycastDistance"] = 25,
 
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
@@ -87,7 +87,7 @@ return {
 			["TerrainAlignmentSpeed"] = 3,
 			["MaxTerrainPitch"] = 45,
 			["MaxTerrainRoll"] = 30,
-			["TerrainRaycastDistance"] = 10,
+			["TerrainRaycastDistance"] = 25,
 
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
@@ -140,7 +140,7 @@ return {
 			["TerrainAlignmentSpeed"] = 3,
 			["MaxTerrainPitch"] = 45,
 			["MaxTerrainRoll"] = 30,
-			["TerrainRaycastDistance"] = 10,
+			["TerrainRaycastDistance"] = 25,
 
 			["AttackDamage"] = 30,
 			["StaminaAttackCost"] = 0.2,
@@ -189,7 +189,7 @@ return {
 			["TerrainAlignmentSpeed"] = 3,
 			["MaxTerrainPitch"] = 45,
 			["MaxTerrainRoll"] = 30,
-			["TerrainRaycastDistance"] = 10,
+			["TerrainRaycastDistance"] = 25,
 
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
