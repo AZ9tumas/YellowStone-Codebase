@@ -59,6 +59,15 @@ function MovementController.new(player, camera, packets)
 		CurrentTilt = 0,
 		TiltSensitivity = plrInfo.TiltSensitivity or 0.8,
 
+		-- Terrain Alignment
+		TerrainAlignmentEnabled = plrInfo.TerrainAlignmentEnabled or false,
+		TerrainAlignmentSpeed = plrInfo.TerrainAlignmentSpeed or 3,
+		MaxTerrainPitch = plrInfo.MaxTerrainPitch or 45,
+		MaxTerrainRoll = plrInfo.MaxTerrainRoll or 30,
+		TerrainRaycastDistance = plrInfo.TerrainRaycastDistance or 10,
+		CurrentTerrainPitch = 0,
+		CurrentTerrainRoll = 0,
+
 		LastHumanoidRootPartCFrame = self.HumanoidRootPart and self.HumanoidRootPart.CFrame or CFrame.new(),
 
 		LastDesiredState = "Idle"
@@ -372,6 +381,35 @@ function MovementController:UpdateStates(dt)
 	end
 end
 
+function MovementController:DetectTerrainSlope()
+	local char = self.Player.Character
+	if not char then return Vector3.new(0, 1, 0), Vector3.new(0, 1, 0) end
+	
+	local hrp = self.HumanoidRootPart
+	if not hrp or hrp.Parent ~= char then return Vector3.new(0, 1, 0), Vector3.new(0, 1, 0) end
+	
+	local params = self.Params
+	if not params.TerrainAlignmentEnabled then return Vector3.new(0, 1, 0), Vector3.new(0, 1, 0) end
+	
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = {char}
+	
+	local origin = hrp.Position
+	local direction = Vector3.new(0, -params.TerrainRaycastDistance, 0)
+	
+	-- Cast ray downward from HumanoidRootPart
+	local result = workspace:Raycast(origin, direction, raycastParams)
+	
+	if result then
+		-- Return the surface normal from the raycast hit
+		return result.Normal, result.Normal
+	end
+	
+	-- Default to up vector if no terrain detected
+	return Vector3.new(0, 1, 0), Vector3.new(0, 1, 0)
+end
+
 function MovementController:UpdatePhysicsControllers(dt)
 	local char = self.Player.Character
 	if not char then return end
@@ -405,9 +443,51 @@ function MovementController:UpdatePhysicsControllers(dt)
 
 	params.CurrentTilt = params.CurrentTilt + (targetTiltRad - params.CurrentTilt) * math.min(dt * params.TiltSpeed, 1)
 
-	-- Apply Final CFrame to AlignOrientation
+	-- Detect terrain and calculate terrain alignment
+	local terrainNormal = Vector3.new(0, 1, 0)
+	if params.TerrainAlignmentEnabled then
+		terrainNormal = self:DetectTerrainSlope()
+	end
+	
+	-- Calculate pitch and roll from terrain normal
+	local targetTerrainPitch = 0
+	local targetTerrainRoll = 0
+	
+	if params.TerrainAlignmentEnabled then
+		-- Calculate the angle between up vector and terrain normal for pitch
+		local upVector = Vector3.new(0, 1, 0)
+		local forwardDir = params.CurrentFacingDirection
+		local rightDir = forwardDir:Cross(upVector).Unit
+		
+		-- Project terrain normal onto forward and right planes to get pitch and roll
+		local pitchDot = terrainNormal:Dot(forwardDir)
+		local rollDot = terrainNormal:Dot(rightDir)
+		
+		-- Calculate terrain pitch (forward/backward slope)
+		targetTerrainPitch = math.asin(math.clamp(-pitchDot, -1, 1))
+		
+		-- Calculate terrain roll (left/right slope)
+		targetTerrainRoll = math.asin(math.clamp(rollDot, -1, 1))
+		
+		-- Clamp to max angles
+		local maxPitchRad = math.rad(params.MaxTerrainPitch)
+		local maxRollRad = math.rad(params.MaxTerrainRoll)
+		targetTerrainPitch = math.clamp(targetTerrainPitch, -maxPitchRad, maxPitchRad)
+		targetTerrainRoll = math.clamp(targetTerrainRoll, -maxRollRad, maxRollRad)
+		
+		-- Smoothly interpolate to target angles
+		params.CurrentTerrainPitch = params.CurrentTerrainPitch + (targetTerrainPitch - params.CurrentTerrainPitch) * math.min(dt * params.TerrainAlignmentSpeed, 1)
+		params.CurrentTerrainRoll = params.CurrentTerrainRoll + (targetTerrainRoll - params.CurrentTerrainRoll) * math.min(dt * params.TerrainAlignmentSpeed, 1)
+	else
+		params.CurrentTerrainPitch = 0
+		params.CurrentTerrainRoll = 0
+	end
+
+	-- Apply Final CFrame to AlignOrientation (combine turning tilt and terrain alignment)
 	local lookCF = CFrame.lookAt(Vector3.zero, params.CurrentFacingDirection)
-	self.BodyMovers.AlignOrientation.CFrame = lookCF * CFrame.Angles(0, 0, params.CurrentTilt)
+	local terrainCF = CFrame.Angles(params.CurrentTerrainPitch, 0, params.CurrentTerrainRoll)
+	local tiltCF = CFrame.Angles(0, 0, params.CurrentTilt)
+	self.BodyMovers.AlignOrientation.CFrame = lookCF * terrainCF * tiltCF
 end
 
 function MovementController:UpdateAnimationSpeed(dt)
