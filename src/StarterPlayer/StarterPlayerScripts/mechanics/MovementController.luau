@@ -383,13 +383,13 @@ end
 
 function MovementController:DetectTerrainSlope()
 	local char = self.Player.Character
-	if not char then return Vector3.new(0, 1, 0), Vector3.new(0, 1, 0) end
+	if not char then return Vector3.new(0, 1, 0) end
 	
 	local hrp = self.HumanoidRootPart
-	if not hrp or hrp.Parent ~= char then return Vector3.new(0, 1, 0), Vector3.new(0, 1, 0) end
+	if not hrp or hrp.Parent ~= char then return Vector3.new(0, 1, 0) end
 	
 	local params = self.Params
-	if not params.TerrainAlignmentEnabled then return Vector3.new(0, 1, 0), Vector3.new(0, 1, 0) end
+	if not params.TerrainAlignmentEnabled then return Vector3.new(0, 1, 0) end
 	
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -403,11 +403,11 @@ function MovementController:DetectTerrainSlope()
 	
 	if result then
 		-- Return the surface normal from the raycast hit
-		return result.Normal, result.Normal
+		return result.Normal
 	end
 	
 	-- Default to up vector if no terrain detected
-	return Vector3.new(0, 1, 0), Vector3.new(0, 1, 0)
+	return Vector3.new(0, 1, 0)
 end
 
 function MovementController:UpdatePhysicsControllers(dt)
