@@ -33,6 +33,13 @@ return {
 			["TiltSensitivity"] = 0.8,
 			["TiltSpeed"] = 2,
 
+			-- Terrain Alignment
+			["TerrainAlignmentEnabled"] = true,
+			["TerrainAlignmentSpeed"] = 3,
+			["MaxTerrainPitch"] = 45,
+			["MaxTerrainRoll"] = 30,
+			["TerrainRaycastDistance"] = 25,
+
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
 			["HealthAttackCost"] = 0.2,
@@ -74,6 +81,13 @@ return {
 			["MaxTiltAngle"] = 20,
 			["TiltSensitivity"] = 0.8,
 			["TiltSpeed"] = 2,
+
+			-- Terrain Alignment
+			["TerrainAlignmentEnabled"] = true,
+			["TerrainAlignmentSpeed"] = 3,
+			["MaxTerrainPitch"] = 45,
+			["MaxTerrainRoll"] = 30,
+			["TerrainRaycastDistance"] = 25,
 
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,
@@ -121,6 +135,13 @@ return {
 			["TiltSensitivity"] = 0.5,
 			["TiltSpeed"] = 2,
 
+			-- Terrain Alignment
+			["TerrainAlignmentEnabled"] = true,
+			["TerrainAlignmentSpeed"] = 3,
+			["MaxTerrainPitch"] = 45,
+			["MaxTerrainRoll"] = 30,
+			["TerrainRaycastDistance"] = 25,
+
 			["AttackDamage"] = 30,
 			["StaminaAttackCost"] = 0.2,
 			["HealthAttackCost"] = 0.2,
@@ -162,6 +183,13 @@ return {
 			["MaxTiltAngle"] = 20,
 			["TiltSensitivity"] = 0.8,
 			["TiltSpeed"] = 2,
+
+			-- Terrain Alignment
+			["TerrainAlignmentEnabled"] = true,
+			["TerrainAlignmentSpeed"] = 3,
+			["MaxTerrainPitch"] = 45,
+			["MaxTerrainRoll"] = 30,
+			["TerrainRaycastDistance"] = 25,
 
 			["AttackDamage"] = 10,
 			["StaminaAttackCost"] = 0.2,

@@ -59,6 +59,18 @@ function MovementController.new(player, camera, packets)
 		CurrentTilt = 0,
 		TiltSensitivity = plrInfo.TiltSensitivity or 0.8,
 
+		-- Terrain Alignment
+		TerrainAlignmentEnabled = plrInfo.TerrainAlignmentEnabled ~= false,
+		TerrainAlignmentSpeed = plrInfo.TerrainAlignmentSpeed or 3,
+		MaxTerrainPitch = plrInfo.MaxTerrainPitch or 45,
+		MaxTerrainRoll = plrInfo.MaxTerrainRoll or 30,
+		TerrainRaycastDistance = plrInfo.TerrainRaycastDistance or 10,
+		CurrentTerrainPitch = 0,
+		CurrentTerrainRoll = 0,
+		CurrentTerrainNormal = Vector3.yAxis,
+		LastTerrainCheckPosition = nil, -- Will be set on first terrain check
+		TerrainCheckThreshold = 2, -- Studs to move before rechecking terrain
+
 		LastHumanoidRootPartCFrame = self.HumanoidRootPart and self.HumanoidRootPart.CFrame or CFrame.new(),
 
 		LastDesiredState = "Idle"
@@ -372,6 +384,35 @@ function MovementController:UpdateStates(dt)
 	end
 end
 
+function MovementController:DetectTerrainSlope()
+	local char = self.Player.Character
+	if not char then return Vector3.new(0, 1, 0) end
+	
+	local hrp = self.HumanoidRootPart
+	if not hrp or hrp.Parent ~= char then return Vector3.new(0, 1, 0) end
+	
+	local params = self.Params
+	if not params.TerrainAlignmentEnabled then return Vector3.new(0, 1, 0) end
+	
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = {char}
+	
+	local origin = hrp.Position
+	local direction = Vector3.new(0, -params.TerrainRaycastDistance, 0)
+	
+	-- Cast ray downward from HumanoidRootPart
+	local result = workspace:Raycast(origin, direction, raycastParams)
+	
+	if result then
+		-- Return the surface normal from the raycast hit
+		return result.Normal
+	end
+	
+	-- Default to up vector if no terrain detected
+	return Vector3.new(0, 1, 0)
+end
+
 function MovementController:UpdatePhysicsControllers(dt)
 	local char = self.Player.Character
 	if not char then return end
@@ -405,9 +446,42 @@ function MovementController:UpdatePhysicsControllers(dt)
 
 	params.CurrentTilt = params.CurrentTilt + (targetTiltRad - params.CurrentTilt) * math.min(dt * params.TiltSpeed, 1)
 
-	-- Apply Final CFrame to AlignOrientation
-	local lookCF = CFrame.lookAt(Vector3.zero, params.CurrentFacingDirection)
-	self.BodyMovers.AlignOrientation.CFrame = lookCF * CFrame.Angles(0, 0, params.CurrentTilt)
+	-- Terrain Alignment
+	local targetNormal = Vector3.yAxis
+	
+	if params.TerrainAlignmentEnabled then
+		targetNormal = self:DetectTerrainSlope()
+		
+		-- Restriction: Clamp maximum terrain angle to reduce extreme tilting
+		-- targetNormal is restricted to not exceed max pitch angle from vertical (Y axis)
+		local maxAngle = math.rad(params.MaxTerrainPitch or 45)
+		local currentAngle = math.acos(math.clamp(targetNormal:Dot(Vector3.yAxis), -1, 1))
+
+		if currentAngle > maxAngle then
+			local axis = Vector3.yAxis:Cross(targetNormal)
+			if axis.Magnitude > 0.001 then
+				-- Rotate Up vector towards target only up to maxAngle
+				targetNormal = CFrame.fromAxisAngle(axis.Unit, maxAngle):VectorToWorldSpace(Vector3.yAxis)
+			end
+		end
+	end
+	
+	-- Smoothing: Reduce intensity of changes (Lerp)
+	local alpha = math.clamp(dt * (params.TerrainAlignmentSpeed or 3), 0, 1)
+	params.CurrentTerrainNormal = params.CurrentTerrainNormal:Lerp(targetNormal, alpha)
+	
+	local usedNormal = params.CurrentTerrainNormal
+
+	-- actual math
+	local rightVec = params.CurrentFacingDirection:Cross(usedNormal)
+	if rightVec.Magnitude < 0.001 then
+		rightVec = Vector3.xAxis -- Fallback
+	end
+
+	local targetCF = CFrame.fromMatrix(Vector3.zero, rightVec, usedNormal)
+	local tiltCF = CFrame.Angles(0, 0, params.CurrentTilt)
+
+	self.BodyMovers.AlignOrientation.CFrame = targetCF * tiltCF
 end
 
 function MovementController:UpdateAnimationSpeed(dt)

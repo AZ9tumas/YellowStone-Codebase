@@ -100,7 +100,7 @@ local function updateStats()
 			HungerText.Text = "Hunger: " .. tostring(math.ceil(char:GetAttribute("Hunger")))
 			ThirstText.Text = "Thirst: " .. tostring(math.ceil(char:GetAttribute("Thirst")))
 		else
-			warn("Hunger, Thirst, or both are missing attributes from this character.")
+			--warn("Hunger, Thirst, or both are missing attributes from this character.")
 		end
 	end
 end
