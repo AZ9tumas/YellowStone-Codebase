@@ -60,13 +60,15 @@ function MovementController.new(player, camera, packets)
 		TiltSensitivity = plrInfo.TiltSensitivity or 0.8,
 
 		-- Terrain Alignment
-		TerrainAlignmentEnabled = plrInfo.TerrainAlignmentEnabled or false,
+		TerrainAlignmentEnabled = plrInfo.TerrainAlignmentEnabled ~= nil and plrInfo.TerrainAlignmentEnabled or true,
 		TerrainAlignmentSpeed = plrInfo.TerrainAlignmentSpeed or 3,
 		MaxTerrainPitch = plrInfo.MaxTerrainPitch or 45,
 		MaxTerrainRoll = plrInfo.MaxTerrainRoll or 30,
 		TerrainRaycastDistance = plrInfo.TerrainRaycastDistance or 10,
 		CurrentTerrainPitch = 0,
 		CurrentTerrainRoll = 0,
+		LastTerrainCheckPosition = Vector3.new(0, 0, 0),
+		TerrainCheckThreshold = 2, -- Studs to move before rechecking terrain
 
 		LastHumanoidRootPartCFrame = self.HumanoidRootPart and self.HumanoidRootPart.CFrame or CFrame.new(),
 
@@ -443,17 +445,25 @@ function MovementController:UpdatePhysicsControllers(dt)
 
 	params.CurrentTilt = params.CurrentTilt + (targetTiltRad - params.CurrentTilt) * math.min(dt * params.TiltSpeed, 1)
 
-	-- Detect terrain and calculate terrain alignment
-	local terrainNormal = Vector3.new(0, 1, 0)
+	-- Terrain Alignment: Calculate pitch and roll from terrain normal
 	if params.TerrainAlignmentEnabled then
-		terrainNormal = self:DetectTerrainSlope()
-	end
-	
-	-- Calculate pitch and roll from terrain normal
-	local targetTerrainPitch = 0
-	local targetTerrainRoll = 0
-	
-	if params.TerrainAlignmentEnabled then
+		-- Only raycast if character has moved significantly (optimization)
+		local currentPos = hrp.Position
+		local distanceMoved = (currentPos - params.LastTerrainCheckPosition).Magnitude
+		local terrainNormal = Vector3.new(0, 1, 0)
+		
+		if distanceMoved >= params.TerrainCheckThreshold then
+			terrainNormal = self:DetectTerrainSlope()
+			params.LastTerrainCheckPosition = currentPos
+		else
+			-- Use last known normal, reconstruct from current angles
+			local upVector = Vector3.new(0, 1, 0)
+			local forwardDir = params.CurrentFacingDirection
+			local rightDir = forwardDir:Cross(upVector).Unit
+			-- Approximate terrain normal from stored angles (for smooth interpolation between checks)
+			terrainNormal = (upVector - forwardDir * math.sin(params.CurrentTerrainPitch) - rightDir * math.sin(params.CurrentTerrainRoll)).Unit
+		end
+		
 		-- Calculate the angle between up vector and terrain normal for pitch
 		local upVector = Vector3.new(0, 1, 0)
 		local forwardDir = params.CurrentFacingDirection
@@ -464,10 +474,10 @@ function MovementController:UpdatePhysicsControllers(dt)
 		local rollDot = terrainNormal:Dot(rightDir)
 		
 		-- Calculate terrain pitch (forward/backward slope)
-		targetTerrainPitch = math.asin(math.clamp(-pitchDot, -1, 1))
+		local targetTerrainPitch = math.asin(math.clamp(-pitchDot, -1, 1))
 		
 		-- Calculate terrain roll (left/right slope)
-		targetTerrainRoll = math.asin(math.clamp(rollDot, -1, 1))
+		local targetTerrainRoll = math.asin(math.clamp(rollDot, -1, 1))
 		
 		-- Clamp to max angles
 		local maxPitchRad = math.rad(params.MaxTerrainPitch)
