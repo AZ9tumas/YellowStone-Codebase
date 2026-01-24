@@ -60,7 +60,7 @@ function MovementController.new(player, camera, packets)
 		TiltSensitivity = plrInfo.TiltSensitivity or 0.8,
 
 		-- Terrain Alignment
-		TerrainAlignmentEnabled = plrInfo.TerrainAlignmentEnabled ~= nil and plrInfo.TerrainAlignmentEnabled or true,
+		TerrainAlignmentEnabled = plrInfo.TerrainAlignmentEnabled ~= false,
 		TerrainAlignmentSpeed = plrInfo.TerrainAlignmentSpeed or 3,
 		MaxTerrainPitch = plrInfo.MaxTerrainPitch or 45,
 		MaxTerrainRoll = plrInfo.MaxTerrainRoll or 30,
@@ -447,6 +447,11 @@ function MovementController:UpdatePhysicsControllers(dt)
 
 	-- Terrain Alignment: Calculate pitch and roll from terrain normal
 	if params.TerrainAlignmentEnabled then
+		-- Calculate base vectors once
+		local upVector = Vector3.new(0, 1, 0)
+		local forwardDir = params.CurrentFacingDirection
+		local rightDir = forwardDir:Cross(upVector).Unit
+		
 		-- Only raycast if character has moved significantly (optimization)
 		local currentPos = hrp.Position
 		local distanceMoved = (currentPos - params.LastTerrainCheckPosition).Magnitude
@@ -456,18 +461,14 @@ function MovementController:UpdatePhysicsControllers(dt)
 			terrainNormal = self:DetectTerrainSlope()
 			params.LastTerrainCheckPosition = currentPos
 		else
-			-- Use last known normal, reconstruct from current angles
-			local upVector = Vector3.new(0, 1, 0)
-			local forwardDir = params.CurrentFacingDirection
-			local rightDir = forwardDir:Cross(upVector).Unit
 			-- Approximate terrain normal from stored angles (for smooth interpolation between checks)
-			terrainNormal = (upVector - forwardDir * math.sin(params.CurrentTerrainPitch) - rightDir * math.sin(params.CurrentTerrainRoll)).Unit
+			local reconstructed = upVector - forwardDir * math.sin(params.CurrentTerrainPitch) - rightDir * math.sin(params.CurrentTerrainRoll)
+			if reconstructed.Magnitude > 0.01 then
+				terrainNormal = reconstructed.Unit
+			else
+				terrainNormal = upVector
+			end
 		end
-		
-		-- Calculate the angle between up vector and terrain normal for pitch
-		local upVector = Vector3.new(0, 1, 0)
-		local forwardDir = params.CurrentFacingDirection
-		local rightDir = forwardDir:Cross(upVector).Unit
 		
 		-- Project terrain normal onto forward and right planes to get pitch and roll
 		local pitchDot = terrainNormal:Dot(forwardDir)
