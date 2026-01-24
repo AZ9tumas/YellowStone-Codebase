@@ -67,7 +67,7 @@ function MovementController.new(player, camera, packets)
 		TerrainRaycastDistance = plrInfo.TerrainRaycastDistance or 10,
 		CurrentTerrainPitch = 0,
 		CurrentTerrainRoll = 0,
-		LastTerrainCheckPosition = Vector3.new(0, 0, 0),
+		LastTerrainCheckPosition = nil, -- Will be set on first terrain check
 		TerrainCheckThreshold = 2, -- Studs to move before rechecking terrain
 
 		LastHumanoidRootPartCFrame = self.HumanoidRootPart and self.HumanoidRootPart.CFrame or CFrame.new(),
@@ -454,7 +454,7 @@ function MovementController:UpdatePhysicsControllers(dt)
 		
 		-- Only raycast if character has moved significantly (optimization)
 		local currentPos = hrp.Position
-		local distanceMoved = (currentPos - params.LastTerrainCheckPosition).Magnitude
+		local distanceMoved = params.LastTerrainCheckPosition and (currentPos - params.LastTerrainCheckPosition).Magnitude or math.huge
 		local terrainNormal = Vector3.new(0, 1, 0)
 		
 		if distanceMoved >= params.TerrainCheckThreshold then
