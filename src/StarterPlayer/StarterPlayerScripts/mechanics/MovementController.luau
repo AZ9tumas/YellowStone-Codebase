@@ -133,12 +133,17 @@ function MovementController:Move(direction: Vector3)
 	if direction.Magnitude > 0 then
 		local flatDir = Vector3.new(direction.X, 0, direction.Z)
 		if flatDir.Magnitude > 0 then
+			-- Preserve the magnitude of the input direction as a speed multiplier
+			-- This allows braking (magnitude < 1) and momentum (magnitude > 1) to work
+			local speedScale = flatDir.Magnitude
 			flatDir = flatDir.Unit
+			
+			-- Calculate velocity vector using direction and current walkspeed
+			local velocity = flatDir * (targetSpeed * speedScale)
+			lv.PlaneVelocity = Vector2.new(velocity.X, velocity.Z)
+		else
+			lv.PlaneVelocity = Vector2.zero
 		end
-
-		-- Calculate velocity vector using direction and current walkspeed
-		local velocity = flatDir * targetSpeed
-		lv.PlaneVelocity = Vector2.new(velocity.X, velocity.Z)
 	else
 		lv.PlaneVelocity = Vector2.zero
 	end
