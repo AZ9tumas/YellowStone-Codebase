@@ -23,7 +23,6 @@ local SERVICE_NAMES = {
     "StarterGui",
     "StarterPack",
     "StarterPlayer",
-    "Workspace",
     "Lighting",
     "SoundService",
     "Chat",
