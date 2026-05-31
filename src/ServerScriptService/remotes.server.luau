@@ -3,6 +3,10 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+--// Spawn Locations
+local SpawnLocations: {} = Workspace.SpawnLocations:GetChildren()
 
 -- modules
 local serverModules = script.Parent.Modules
@@ -14,7 +18,7 @@ local packets = require(repModules.Packets)
 local models = ServerStorage:WaitForChild("Models")
 
 packets.spawn.listen(function(data, player)
-	remotesM.Morph(player, data.charName, data.gender)
+	remotesM.Morph(player, data.charName, data.gender, SpawnLocations)
 end)
 
 packets.sprint.listen(function(data, player)

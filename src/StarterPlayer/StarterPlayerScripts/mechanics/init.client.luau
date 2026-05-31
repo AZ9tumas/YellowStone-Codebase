@@ -13,6 +13,7 @@ local starterGui = player.PlayerGui
 --// Events
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local HealthModifier: RemoteEvent = Remotes:WaitForChild("HealthModifier")
+local FoodQuantity: RemoteEvent = Remotes:WaitForChild("FoodQuantityRemote")
 
 -- Modules
 local modules = ReplicatedStorage:WaitForChild("Modules")
@@ -34,14 +35,21 @@ local renderConnection = nil
 local attackReturnConnection = nil
 
 -- Food/Water Variables
+
+
+
 local FoodWaterCycle_Interval = 1
-local CurrentHungerValue: number = 1
-local CurrentThirstValue: number = 1
 local IsEating: boolean = false
 local IsDrinking: boolean = false
 
 local HerbivoreFoodSources: Folder = Workspace:WaitForChild("HerbivoreFoodSources")
 local DrinkableWaterSources: Folder = Workspace:WaitForChild("DrinkableWaterSources")
+
+local FoodDecayInterval = 1 --\\ Amount of seconds between each food value reduction
+local FoodDecayRate = 5 --\\ Amount of food removed
+
+local Eat_Drink_Delay = false
+
 
 -- Helper function to check if player is moving (uses ControlModule for custom movement system)
 local function IsPlayerMoving(): boolean
@@ -132,97 +140,130 @@ local function Initialize(data)
 		if controller then controller:Update(dt) end
 	end)
 	
+	local function FoodWater_Loop()
+		
+	end
+	coroutine.wrap(function()
+		FoodWaterCycle.FoodWaterVariable_Initialise(char,FoodWaterCycle.FoodWaterCycle_Stats["ThirstMax"],FoodWaterCycle.FoodWaterCycle_Stats["HungerMax"])
+		
+		local Humanoid: Humanoid = char:WaitForChild("Humanoid")
+		local FoodWaterDetector = char:WaitForChild("FoodWaterDetector")
+		local Animator: Animator = Humanoid:WaitForChild("Animator")
+		local E,D = script:WaitForChild("Eat"),script:WaitForChild("Drink")
+		local EatAnim: AnimationTrack = Animator:LoadAnimation(E)
+		local DrinkAnim: AnimationTrack = Animator:LoadAnimation(D)
+		EatAnim.Priority,DrinkAnim.Priority = Enum.AnimationPriority.Action,Enum.AnimationPriority.Action
+		
+		ContextActionService:UnbindAction("Eat/Drink")
+		ContextActionService:BindActionAtPriority("Eat/Drink", function(ActionName,InputState,InputType)
+			
+			if InputState == Enum.UserInputState.Begin and not Eat_Drink_Delay then
+				if EatAnim.IsPlaying == true or DrinkAnim.IsPlaying == true then return end
+				
+				local Character = player.Character
+				local HRP: Part = Character:WaitForChild("HumanoidRootPart")
+				
+				if HRP then
+					
+					local DetectionParams = OverlapParams.new()
+					DetectionParams.FilterDescendantsInstances = {HerbivoreFoodSources,DrinkableWaterSources}
+					DetectionParams.FilterType = Enum.RaycastFilterType.Include
+					local Food_WaterScan = workspace:GetPartsInPart(FoodWaterDetector,DetectionParams)
+					
+					for _,v in Food_WaterScan do
+						
+						if v:GetAttribute("HerbivoreFood") and not IsPlayerMoving() and v:GetAttribute("Withered") == false and Character:GetAttribute("Hunger") ~= 100 and not EatAnim.IsPlaying and IsEating == false then
+							print("Food Detected")
+							EatAnim:AdjustSpeed(1)
+							EatAnim:Play()
+							IsEating = true
+							repeat
+							FoodQuantity:FireServer(v,FoodDecayRate)
+							task.wait(FoodDecayInterval) 
+							until IsPlayerMoving() or IsEating == false or v:GetAttribute("Withered") == true or Character:GetAttribute("Hunger") == 100
+							EatAnim:Stop()
+							EatAnim:AdjustSpeed(-1)
+							EatAnim:Play()
+							task.wait(EatAnim.Length)
+							EatAnim:Stop()
+							Eat_Drink_Delay = true
+							task.delay(FoodDecayInterval,function()
+								Eat_Drink_Delay = false
+							end)
+							break
+							
+						elseif v:GetAttribute("DrinkableWaterSource") and not IsPlayerMoving() and Character:GetAttribute("Thirst") ~= 100 then
+							
+							print("WaterDetected")
+							DrinkAnim:AdjustSpeed(1)
+							DrinkAnim:Play()
+							IsDrinking = true
+							repeat task.wait() until IsPlayerMoving() or IsDrinking == false or Character:GetAttribute("Thirst") == 100
+							DrinkAnim:Stop()
+							DrinkAnim:AdjustSpeed(-1)
+							DrinkAnim:Play()
+							task.wait(DrinkAnim.Length)
+							DrinkAnim:Stop()
+							Eat_Drink_Delay = true
+							task.delay(FoodDecayInterval,function()
+								Eat_Drink_Delay = false
+							end)
+							break
+							
+						end
+						
+					end
+				end
+				
+			elseif InputState == Enum.UserInputState.End then
+				IsEating,IsDrinking = false,false
+			end
+			
+		end,false,2,Enum.KeyCode.E)
+		
+		while task.wait(FoodWaterCycle_Interval) do
+			if char:GetAttribute("Thirst") and char:GetAttribute("Hunger") then
+
+				if IsDrinking == true then
+					char:SetAttribute("Thirst",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Thirst"),FoodWaterCycle.FoodWaterCycle_Stats["ThirstRegenRate"]))
+				else
+					char:SetAttribute("Thirst",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Thirst"),FoodWaterCycle.FoodWaterCycle_Stats["ThirstDecayRate"]))
+				end
+
+				if IsEating == true then
+					char:SetAttribute("Hunger",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Hunger"),FoodWaterCycle.FoodWaterCycle_Stats["HungerRegenRate"]))
+				else
+					char:SetAttribute("Hunger",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Hunger"),FoodWaterCycle.FoodWaterCycle_Stats["HungerDecayRate"]))
+				end
+
+				if char:GetAttribute("Hunger") == 0 then
+					HealthModifier:FireServer(Humanoid,FoodWaterCycle.FoodWaterCycle_Stats["HungerHealthDecay"])
+				end
+
+				if char:GetAttribute("Thirst") == 0 then
+					HealthModifier:FireServer(Humanoid,FoodWaterCycle.FoodWaterCycle_Stats["ThirstHealthDecay"])
+				end
+				
+			end
+		end
+	end)()       
+	
+	if ReplicatedStorage:FindFirstChild("GUI"):FindFirstChild("HUD") and script.HUDMasterScript and not script.HUDMasterScript:FindFirstChild("HUD") then
+		script.HUDMasterScript.Enabled = false
+		local HUDClone: ScreenGui =  ReplicatedStorage.GUI.HUD:Clone()
+		local HUDMasterScriptClone = script.HUDMasterScript:Clone()
+		print(HUDClone)
+		script.HUDMasterScript:Destroy() 
+		HUDMasterScriptClone.Parent = script
+		HUDClone.Parent = HUDMasterScriptClone
+		HUDMasterScript = HUDMasterScriptClone
+		HUDMasterScript.Enabled = true
+	else
+		script.HUDMasterScript.Enabled = true
+	end
 	print("Client scripts successfully initialized.")
 end
 
 
 
 packets.initClientScripts.listen(Initialize)
---HUDMasterScript.Enabled = true
-
---// Variables
-local char = player.Character
-local Humanoid = char:WaitForChild("Humanoid")
-local FoodWaterDetector = char:WaitForChild("FoodWaterDetector")
-local Animator: Animator = Humanoid:WaitForChild("Animator")
-local E,D = script:WaitForChild("Eat"),script:WaitForChild("Drink")
-local EatAnim: AnimationTrack = Animator:LoadAnimation(E)
-local DrinkAnim: AnimationTrack = Animator:LoadAnimation(D)
-EatAnim.Priority,DrinkAnim.Priority = Enum.AnimationPriority.Action,Enum.AnimationPriority.Action
-
---// ContextActionService Binding
-ContextActionService:BindActionAtPriority("Eat/Drink", function(ActionName,InputState,InputType)
-	if InputState == Enum.UserInputState.Begin then
-		if EatAnim.IsPlaying == true or DrinkAnim.IsPlaying == true then return end
-		local Character = player.Character
-		local HRP: Part = Character:FindFirstChild("HumanoidRootPart",true)
-		if HRP then
-			local DetectionParams = OverlapParams.new()
-			DetectionParams.FilterDescendantsInstances = {HerbivoreFoodSources,DrinkableWaterSources}
-			DetectionParams.FilterType = Enum.RaycastFilterType.Include
-			local Food_WaterScan = workspace:GetPartsInPart(FoodWaterDetector,DetectionParams)
-			for _,v in Food_WaterScan do
-				if v:GetAttribute("HerbivoreFood") and not IsPlayerMoving() then
-					print("Food Detected")
-					EatAnim:AdjustSpeed(1)
-					EatAnim:Play()
-					IsEating = true
-					repeat task.wait() until IsPlayerMoving() or IsEating == false
-					EatAnim:Stop()
-					EatAnim:AdjustSpeed(-1)
-					EatAnim:Play()
-					task.wait(EatAnim.Length)
-					EatAnim:Stop()
-					break
-				elseif v:GetAttribute("DrinkableWaterSource") and not IsPlayerMoving() then
-					print("WaterDetected")
-					DrinkAnim:AdjustSpeed(1)
-					DrinkAnim:Play()
-					IsDrinking = true
-					repeat task.wait() until IsPlayerMoving() or IsDrinking == false
-					DrinkAnim:Stop()
-					DrinkAnim:AdjustSpeed(-1)
-					DrinkAnim:Play()
-					task.wait(DrinkAnim.Length)
-					DrinkAnim:Stop()
-					break
-				end
-			end
-		end
-	elseif InputState == Enum.UserInputState.End then
-		IsEating,IsDrinking = false,false
-	end
-end,false,2,Enum.KeyCode.E)
-
---// Pre-loop commmands
-
-FoodWaterCycle.FoodWaterVariable_Initialise(char,FoodWaterCycle.FoodWaterCycle_Stats["ThirstMax"],FoodWaterCycle.FoodWaterCycle_Stats["HungerMax"])
-print(CurrentHungerValue,CurrentThirstValue)
-
---// Loops
---\\ Hunger/Thirst Cycle
-while task.wait(FoodWaterCycle_Interval) do
-	if char:GetAttribute("Thirst") and char:GetAttribute("Hunger") then
-
-		if IsDrinking == true then
-			char:SetAttribute("Thirst",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Thirst"),FoodWaterCycle.FoodWaterCycle_Stats["ThirstRegenRate"]))
-		else
-			char:SetAttribute("Thirst",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Thirst"),FoodWaterCycle.FoodWaterCycle_Stats["ThirstDecayRate"]))
-		end
-		
-		if IsEating == true then
-			char:SetAttribute("Hunger",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Hunger"),FoodWaterCycle.FoodWaterCycle_Stats["HungerRegenRate"]))
-		else
-			char:SetAttribute("Hunger",FoodWaterCycle.FoodWaterVariable_Change(char:GetAttribute("Hunger"),FoodWaterCycle.FoodWaterCycle_Stats["HungerDecayRate"]))
-		end
-		
-		if char:GetAttribute("Hunger") == 0 then
-			HealthModifier:FireServer(Humanoid,FoodWaterCycle.FoodWaterCycle_Stats["HungerHealthDecay"])
-		end
-		
-		if char:GetAttribute("Thirst") == 0 then
-		HealthModifier:FireServer(Humanoid,FoodWaterCycle.FoodWaterCycle_Stats["ThirstHealthDecay"])
-		end
-	
-	end
-end

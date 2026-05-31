@@ -2,14 +2,14 @@ local FoodWaterCycle = {
 
 	FoodWaterCycle_Stats = {
 
-		["HungerDecayRate"] = -0.6,
-		["ThirstDecayRate"] = -0.9, 
-		["HungerRegenRate"] = 1,
-		["ThirstRegenRate"] = 1,
+		["HungerDecayRate"] = -0.7,
+		["ThirstDecayRate"] = -0.4, 
+		["HungerRegenRate"] = 2,
+		["ThirstRegenRate"] = 4,
 		["HungerMax"] = 100,
 		["ThirstMax"] = 100,
 		["HungerHealthDecay"] = -2,
-		["ThirstHealthDecay"] = -6
+		["ThirstHealthDecay"] = -3
 
 	},
 }

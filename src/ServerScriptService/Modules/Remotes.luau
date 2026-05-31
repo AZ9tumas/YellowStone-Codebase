@@ -262,7 +262,7 @@ function module.SetupAnimations(plr: Player, charName: string, gender: string)
     return true
 end
 
-function module.Morph(plr: Player, charName: string, gender: string)
+function module.Morph(plr: Player, charName: string, gender: string, SpawnLocations: {})
     local modelsUnderGender = models:FindFirstChild(gender)
     if not modelsUnderGender then return false, "No such gender" end
 
@@ -270,7 +270,7 @@ function module.Morph(plr: Player, charName: string, gender: string)
     if not reqModel then return false, "No such model" end
 
     local currChar = plr.Character
-    local newChar = reqModel:Clone()
+    local newChar: Model = reqModel:Clone()
     newChar.Parent = workspace
     newChar.Name = plr.Name
 
@@ -308,7 +308,10 @@ function module.Morph(plr: Player, charName: string, gender: string)
     -- server scripts
     for _, v in pairs(sc) do
         v.Enabled = true
-    end
+	end
+	
+	-- Spawn
+	newChar:PivotTo(SpawnLocations[math.random(1, #SpawnLocations)].CFrame)
     
     return true
 end
