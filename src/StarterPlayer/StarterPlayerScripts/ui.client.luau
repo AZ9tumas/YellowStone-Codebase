@@ -80,15 +80,9 @@ end)
 
 local function updateStats()
 	if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
-		local vel = Vector3.zero.Magnitude
 		local hmr = char:FindFirstChild("HumanoidRootPart")
 		if not hmr then return end
-		local lv = hmr:FindFirstChild("LinearVelocity")
-		if lv then
-			vel = lv.VelocityConstraintMode == Enum.VelocityConstraintMode.Plane and lv.PlaneVelocity.Magnitude or lv.VectorVelocity.Magnitude
-		end
-
-		vel = char.Humanoid.WalkSpeed
+		local vel = char.Humanoid.WalkSpeed
 		statsFrame.Health.Text = "Health: " .. tostring(char.Humanoid.Health):match("^(%d+)")
 		statsFrame.Speed.Text = "Speed: " .. tostring(vel):match("^(%d+)")
 		

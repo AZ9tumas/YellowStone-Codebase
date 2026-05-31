@@ -65,6 +65,30 @@ local DuskAtmosphereDecay = Color3.fromRGB(216, 213, 255)
 local DuskAtmosphereGlare = 1.03
 local DuskAtmosphereHaze = 2.1
 
+--^ Early Morning Variables
+local CycleSpeed_EarlyMorning = 45
+local EarlyMorningBrightness = 3.3
+local EarlyMorningAmbientColour: Color3 = Color3.fromRGB(42, 37, 34)
+local EarlyMorningColourshift_Top = Color3.fromRGB(208, 192, 161)
+local EarlyMorningOutdoorAmbient = Color3.fromRGB(147, 132, 109)
+local EarlyMorningAtmosphereDensity = 0.155
+local EarlyMorningAtmosphereColour = Color3.fromRGB(153, 255, 0)
+local EarlyMorningAtmosphereDecay = Color3.fromRGB(216, 213, 255)
+local EarlyMorningAtmosphereGlare = 1.03
+local EarlyMorningAtmosphereHaze = 2.1
+
+--^ Late Day Variables
+local CycleSpeed_LateDay = 45
+local LateDayBrightness = 3.3
+local LateDayAmbientColour: Color3 = Color3.fromRGB(42, 37, 34)
+local LateDayColourshift_Top = Color3.fromRGB(208, 192, 161)
+local LateDayOutdoorAmbient = Color3.fromRGB(147, 132, 109)
+local LateDayAtmosphereDensity = 0.155
+local LateDayAtmosphereColour = Color3.fromRGB(153, 255, 0)
+local LateDayAtmosphereDecay = Color3.fromRGB(216, 213, 255)
+local LateDayAtmosphereGlare = 1.03
+local LateDayAtmosphereHaze = 2.1
+
 --^ Day/Night Variables
 local CycleSpeed_Current = CycleSpeed_Day
 --// Base Commands
@@ -84,7 +108,12 @@ function DayNight_Cycle()
 			TweenService:Create(Lighting,TweenDetails(30),{Brightness = NightBrightness, Ambient = NightAmbientColour, ColorShift_Top = NightColourshift_Top, OutdoorAmbient = NightOutdoorAmbient}):Play()
 			TweenService:Create(Atmosphere,TweenDetails(30),{Density = NightAtmosphereDensity, Color = NightAtmosphereColour, Decay = NightAtmosphereDecay, Glare = NightAtmosphereGlare, Haze = NightAtmosphereHaze}):Play()
 		end
-		if Lighting.ClockTime == 6 then
+		if Lighting.ClockTime == 5.3 then
+			CycleSpeed_Current = CycleSpeed_EarlyMorning
+			TweenService:Create(Lighting,TweenDetails(30),{Brightness = EarlyMorningBrightness, Ambient = EarlyMorningAmbientColour, ColorShift_Top = EarlyMorningColourshift_Top, OutdoorAmbient = EarlyMorningOutdoorAmbient}):Play()
+			TweenService:Create(Atmosphere,TweenDetails(30),{Density = EarlyMorningAtmosphereDensity, Color = EarlyMorningAtmosphereColour, Decay = EarlyMorningAtmosphereDecay, Glare = EarlyMorningAtmosphereGlare, Haze = EarlyMorningAtmosphereHaze}):Play()
+		end
+		if Lighting.ClockTime == 6.1 then
 			CycleSpeed_Current = CycleSpeed_Dawn
 			TweenService:Create(Lighting,TweenDetails(30),{Brightness = DawnBrightness, Ambient = DawnAmbientColour, ColorShift_Top = DawnColourshift_Top, OutdoorAmbient = DawnOutdoorAmbient}):Play()
 			TweenService:Create(Atmosphere,TweenDetails(30),{Density = DawnAtmosphereDensity, Color = DawnAtmosphereColour, Decay = DawnAtmosphereDecay, Glare = DawnAtmosphereGlare, Haze = DawnAtmosphereHaze}):Play()
@@ -94,7 +123,12 @@ function DayNight_Cycle()
 			TweenService:Create(Lighting,TweenDetails(30),{Brightness = DayBrightness, Ambient = DayAmbientColour, ColorShift_Top = DayColourshift_Top, OutdoorAmbient = DayOutdoorAmbient}):Play()
 			TweenService:Create(Atmosphere,TweenDetails(30),{Density = DayAtmosphereDensity, Color = DayAtmosphereColour, Decay = DayAtmosphereDecay, Glare = DayAtmosphereGlare, Haze = DayAtmosphereHaze}):Play()
 		end
-		if Lighting.ClockTime == 18 then
+		if Lighting.ClockTime == 17.5 then
+			CycleSpeed_Current = CycleSpeed_LateDay
+			TweenService:Create(Lighting,TweenDetails(30),{Brightness = LateDayBrightness, Ambient = LateDayAmbientColour, ColorShift_Top = LateDayColourshift_Top, OutdoorAmbient = LateDayOutdoorAmbient}):Play()
+			TweenService:Create(Atmosphere,TweenDetails(30),{Density = LateDayAtmosphereDensity, Color = LateDayAtmosphereColour, Decay = LateDayAtmosphereDecay, Glare = LateDayAtmosphereGlare, Haze = LateDayAtmosphereHaze}):Play()
+		end
+		if Lighting.ClockTime == 19.5 then
 			CycleSpeed_Current = CycleSpeed_Dusk
 			TweenService:Create(Lighting,TweenDetails(30),{Brightness = DuskBrightness, Ambient = DuskAmbientColour, ColorShift_Top = DuskColourshift_Top, OutdoorAmbient = DuskOutdoorAmbient}):Play()
 			TweenService:Create(Atmosphere,TweenDetails(30),{Density = DuskAtmosphereDensity, Color = DuskAtmosphereColour, Decay = DuskAtmosphereDecay, Glare = DuskAtmosphereGlare, Haze = DuskAtmosphereHaze}):Play()

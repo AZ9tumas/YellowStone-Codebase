@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local StarterGUI = game:GetService("StarterGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 --// Variables
 local Player = Players.LocalPlayer
@@ -18,6 +19,9 @@ local HealthFill: ImageLabel,StaminaFill: ImageLabel,HungerFill: ImageLabel, Thi
 local HealthFillGradient: UIGradient,StaminaFillGradient: UIGradient,HungerFillGradient: UIGradient,ThirstFillGradient: UIGradient = HealthFill:WaitForChild("UIGradient1"),StaminaFill:WaitForChild("UIGradient2"),HungerFill:WaitForChild("UIGradient3"),ThirstFill:WaitForChild("UIGradient4")
 local FoodWaterCycle = require(script.Parent:WaitForChild("FoodWaterCycle"))
 
+--\\ Modules
+local CommonFunctions = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CommonFunctions"))
+
 --// Add HUD
 HUD.Parent = Player.PlayerGui
 
@@ -28,19 +32,19 @@ StarterGUI:SetCoreGuiEnabled(Enum.CoreGuiType.Health,false)
 function UpdateStats()
 	
 	if Char and Humanoid then
-		TweenService:Create(HealthFillGradient,TweenInfo.new(0.5),{Offset = Vector2.new(0,(1 - ((Humanoid.Health*100)/Humanoid.MaxHealth)/100))}):Play()
+		TweenService:Create(HealthFillGradient,TweenInfo.new(0.5),{Offset = Vector2.new(0,CommonFunctions.LinearInterpolation(0.1,0.9,(1 - ((Humanoid.Health*100)/Humanoid.MaxHealth)/100)))}):Play()
 	end
 	
 	if Char and Playerstats.Stamina then
-		TweenService:Create(StaminaFillGradient,TweenInfo.new(0.5),{Offset = Vector2.new(0,(1 - (Playerstats.Stamina.Value*100)/100))}):Play()
+		TweenService:Create(StaminaFillGradient,TweenInfo.new(0.5),{Offset = Vector2.new(0,CommonFunctions.LinearInterpolation(0.05,0.9,(1 - (Playerstats.Stamina.Value*100)/100)))}):Play()
 	end
 
 	if Char and Char:GetAttribute("Hunger") then
-		TweenService:Create(HungerFillGradient,TweenInfo.new(0.5),{Offset = Vector2.new(0,(1 - ((Char:GetAttribute("Hunger")*100)/FoodWaterCycle.FoodWaterCycle_Stats["HungerMax"])/100))}):Play()
+		TweenService:Create(HungerFillGradient,TweenInfo.new(0.5),{Offset = Vector2.new(0,CommonFunctions.LinearInterpolation(0.1,0.85,(1 - ((Char:GetAttribute("Hunger")*100)/FoodWaterCycle.FoodWaterCycle_Stats["HungerMax"])/100)))}):Play()
 	end
 	
 	if Char and Char:GetAttribute("Thirst") then
-		TweenService:Create(ThirstFillGradient,TweenInfo.new(0.5),{Offset = Vector2.new(0,(1 - ((Char:GetAttribute("Thirst")*100)/FoodWaterCycle.FoodWaterCycle_Stats["ThirstMax"])/100))}):Play()
+		TweenService:Create(ThirstFillGradient,TweenInfo.new(0.5),{Offset = Vector2.new(0,CommonFunctions.LinearInterpolation(0.1,0.85,(1 - ((Char:GetAttribute("Thirst")*100)/FoodWaterCycle.FoodWaterCycle_Stats["ThirstMax"])/100)))}):Play()
 	end
 	
 end

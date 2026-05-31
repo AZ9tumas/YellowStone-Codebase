@@ -14,6 +14,7 @@ local starterGui = player.PlayerGui
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local HealthModifier: RemoteEvent = Remotes:WaitForChild("HealthModifier")
 local FoodQuantity: RemoteEvent = Remotes:WaitForChild("FoodQuantityRemote")
+local ReplicateSounds: RemoteEvent = Remotes:WaitForChild("ReplicateSounds")
 
 -- Modules
 local modules = ReplicatedStorage:WaitForChild("Modules")
@@ -37,7 +38,6 @@ local attackReturnConnection = nil
 -- Food/Water Variables
 
 
-
 local FoodWaterCycle_Interval = 1
 local IsEating: boolean = false
 local IsDrinking: boolean = false
@@ -49,6 +49,10 @@ local FoodDecayInterval = 1 --\\ Amount of seconds between each food value reduc
 local FoodDecayRate = 5 --\\ Amount of food removed
 
 local Eat_Drink_Delay = false
+
+
+-- FootstepSFX
+local FootstepSFX_Folder = ReplicatedStorage.FootstepSFX
 
 
 -- Helper function to check if player is moving (uses ControlModule for custom movement system)
@@ -261,6 +265,13 @@ local function Initialize(data)
 	else
 		script.HUDMasterScript.Enabled = true
 	end
+	
+	if script:FindFirstChild("FootstepSFXClient") then
+		script.FootstepSFXClient.Enabled = true
+	end
+	
+	ReplicateSounds:FireServer(char)
+	
 	print("Client scripts successfully initialized.")
 end
 

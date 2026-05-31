@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 -- Modules
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local commonM = require(modules:WaitForChild("Common"))
+local Stats = require(modules:WaitForChild("Stats"))
 local StateManager = require(modules:WaitForChild("StateManager"))
 local AnimationController = require(modules:WaitForChild("AnimationController"))
 
@@ -31,7 +32,7 @@ function MovementController.new(player, camera, packets)
 	self.AnimationController = AnimationController.new(player)
 
 	self.Params = {
-		-- Movement States
+		-- Movement Stages: Idle, Walk, Trot, Run, Sprint
 		CurrentWalkingStyle = "Walk",
 		CurrentRunningStyle = "Sprint",
 		CurrentState = "Idle",
@@ -47,12 +48,6 @@ function MovementController.new(player, camera, packets)
 		TurnSpeedDecay = plrInfo.TurnSpeedDecay or 0.08,
 		TurnBrakeSensitivity = plrInfo.TurnBrakeSensitivity or 2.5,
 
-		-- Momentum Params
-		MomentumActive = false,
-		MomentumStartTime = 0,
-		MomentumDuration = 0.6,
-		MomentumStrength = 3,
-
 		-- Tilt Conf
 		MaxTiltAngle = plrInfo.MaxTiltAngle or 25,
 		TiltSpeed = plrInfo.TiltSpeed or 2,
@@ -64,6 +59,8 @@ function MovementController.new(player, camera, packets)
 		TerrainAlignmentSpeed = plrInfo.TerrainAlignmentSpeed or 3,
 		MaxTerrainPitch = plrInfo.MaxTerrainPitch or 45,
 		MaxTerrainRoll = plrInfo.MaxTerrainRoll or 30,
+		MaxTerrainAngle = plrInfo.MaxTerrainAngle or 40,
+		MaxClimbAngle = plrInfo.MaxClimbAngle or 35,
 		TerrainRaycastDistance = plrInfo.TerrainRaycastDistance or 10,
 		CurrentTerrainPitch = 0,
 		CurrentTerrainRoll = 0,
@@ -83,7 +80,7 @@ function MovementController.new(player, camera, packets)
 
 	self.BodyMovers = {
 		AlignOrientation = nil,
-		LinearVelocity = nil
+		LinearVelocity = nil,
 	}
 
 	self:SetupStateCallbacks()
@@ -113,40 +110,42 @@ function MovementController:Init()
 	self.Params.CurrentFacingDirection = hrp.CFrame.LookVector
 end
 
--- Custom Move method that replaces Humanoid:Move
--- Uses LinearVelocity body mover for precise control and eliminates sliding issues
-function MovementController:Move(direction: Vector3)
+-- Drive the LinearVelocity body mover on the X / Z plane.
+--
+-- The mover is configured server-side with VelocityConstraintMode = Plane
+-- and PrimaryTangentAxis / SecondaryTangentAxis on world X / Z, so it can
+-- ONLY apply force on the horizontal plane. Y is owned entirely by gravity
+-- and the Humanoid's HipHeight + collisions. There is no position feedback
+-- (unlike AlignPosition.Position = hrp.Position) so there's no possibility
+-- of a vertical ratchet.
+function MovementController:Move(direction: Vector3, _dt: number)
 	local lv = self.BodyMovers.LinearVelocity
 	if not lv or not lv.Parent then
-		self.BodyMovers.LinearVelocity = self.HumanoidRootPart and self.HumanoidRootPart:FindFirstChildWhichIsA("LinearVelocity")
+		self.BodyMovers.LinearVelocity = self.HumanoidRootPart
+			and self.HumanoidRootPart:FindFirstChildWhichIsA("LinearVelocity")
 		lv = self.BodyMovers.LinearVelocity
 	end
-
 	if not lv then return end
 
 	local hum = self.Humanoid
 	if not hum then return end
 
-	-- Get target speed from humanoid's WalkSpeed (set by server based on state)
 	local targetSpeed = hum.WalkSpeed
 
-	if direction.Magnitude > 0 then
+	if direction.Magnitude > 0 and targetSpeed > 0 then
 		local flatDir = Vector3.new(direction.X, 0, direction.Z)
 		if flatDir.Magnitude > 0 then
-			-- Preserve the magnitude of the input direction as a speed multiplier
-			-- This allows braking (magnitude < 1) and momentum (magnitude > 1) to work
+			-- Preserve direction magnitude so callers can pass a brake
+			-- factor (|dir| < 1) without renormalising.
 			local speedScale = flatDir.Magnitude
 			flatDir = flatDir.Unit
-			
-			-- Calculate velocity vector using direction and current walkspeed
-			local velocity = flatDir * (targetSpeed * speedScale)
-			lv.PlaneVelocity = Vector2.new(velocity.X, velocity.Z)
-		else
-			lv.PlaneVelocity = Vector2.zero
+			local v = flatDir * (targetSpeed * speedScale)
+			lv.PlaneVelocity = Vector2.new(v.X, v.Z)
+			return
 		end
-	else
-		lv.PlaneVelocity = Vector2.zero
 	end
+
+	lv.PlaneVelocity = Vector2.zero
 end
 
 -- Returns the current movement direction vector (for external scripts to check if moving)
@@ -182,39 +181,18 @@ function MovementController:ConstrainState(desiredState)
 	local currentSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
 
 	local info = self.PlrInfo or {}
-	local walkSpeed = info.WalkSpeed or 15
-	local trotSpeed = info.TrotSpeed or 28
-
-	local threshold = 1.5
-
-	-- Determine max allowed state based on speed thresholds
-	-- Hierarchy: Walk -> Trot -> Run/Sprint
-
-	local canRunOrSprint = currentSpeed >= (trotSpeed + threshold)
-	local canTrot = currentSpeed >= (walkSpeed + threshold)
-
-	if desiredState == "Sprint" then
-		if canRunOrSprint then
-			return "Sprint"
-		end
-	elseif desiredState == "Run" then
-		if canRunOrSprint then
-			return "Run"
-		end
-	end
-
-	if desiredState == "Trot" or desiredState == "Sprint" or desiredState == "Run" then
-		if canTrot then
-			return "Trot"
-		end
-	end
-
-	return "Walk"
+	return Stats.ConstrainState(
+		desiredState,
+		currentSpeed,
+		info.WalkSpeed or 15,
+		info.TrotSpeed or 28
+	)
 end
 
 function MovementController:UpdateMovement(dt)
-	-- This handles turning and movement. Uses custom Move() method with LinearVelocity
-	-- for precise control and to eliminate sliding issues with scaled models.
+	-- Handles turning + movement. Drives the AlignPosition body mover via
+	-- :Move() so position is fully owned by the client controller (no
+	-- humanoid sliding). All math constants come from Stats.Movement.
 	local char = self.Player.Character
 	if not char then return end
 	local hum: Humanoid = self.Humanoid
@@ -224,13 +202,12 @@ function MovementController:UpdateMovement(dt)
 
 	local params = self.Params
 	local moveVector = self.ControlModule:GetMoveVector()
-	local targetDir = Vector3.new()
+	local targetDir
 
 	if moveVector.Magnitude > 0 then
-		-- get the absolute target direction (relative to world)
 		local camCF = self.Camera.CFrame
 		targetDir = camCF:VectorToWorldSpace(moveVector)
-		targetDir = Vector3.new(targetDir.X, 0, targetDir.Z) -- Flatten Y
+		targetDir = Vector3.new(targetDir.X, 0, targetDir.Z)
 		if targetDir.Magnitude > 0.001 then
 			targetDir = targetDir.Unit
 		end
@@ -239,32 +216,21 @@ function MovementController:UpdateMovement(dt)
 	end
 
 	local currentSpeed = hrp.AssemblyLinearVelocity.Magnitude
-	local maxTurnRate = params.BaseTurnRate / (1 + (currentSpeed * params.TurnSpeedDecay))
+	local maxTurnRate = Stats.GetMaxTurnRate(params.BaseTurnRate, currentSpeed, params.TurnSpeedDecay)
 
 	local currentDir: Vector3 = params.CurrentFacingDirection
 	local dot = math.clamp(currentDir:Dot(targetDir), -1, 1)
-	-- Here, angleDiff is the final angle difference between current
-	-- direction and the final target direction.
 	local angleDiff = math.acos(dot)
 
-	-- Enhanced brake factor: stronger deceleration at higher speeds during sharp turns.
-	-- This reduces sliding by making the speed reduction more aggressive when both
-	-- the turn is sharp AND the character is moving fast.
-	local speedFactor = math.clamp(currentSpeed / 30, 0, 1) -- Normalize speed (0-1 range)
-	local baseBrakeFactor = 1 / (1 + (angleDiff * params.TurnBrakeSensitivity))
-	-- Apply stronger braking at higher speeds: reduce the brake factor further when moving fast
-	local brakeFactor = baseBrakeFactor * (1 - (speedFactor * angleDiff * 0.15))
-	brakeFactor = math.clamp(brakeFactor, 0.05, 1) -- Minimum 5% movement to prevent complete freeze
+	local brakeFactor = Stats.GetBrakeFactor(angleDiff, currentSpeed, params.TurnBrakeSensitivity)
 
 	if moveVector.Magnitude > 0 and angleDiff > 0.001 then
-		-- Increase turn rate for sharper turns - helps character align faster with desired direction
-		-- reducing the time spent moving in the "wrong" direction (which causes sliding feel)
-		local turnBoost = 1 + (angleDiff * 0.5) -- Up to ~2.5x faster turn for 180° turns
-		local boostedTurnRate = maxTurnRate * turnBoost
+		-- Sharper desired angle -> faster turn so the character finishes
+		-- aligning quickly (reduces the time spent moving in the wrong dir).
+		local boostedTurnRate = maxTurnRate * Stats.GetTurnBoost(angleDiff)
 		local maxStep = boostedTurnRate * dt
 
 		local cross = currentDir:Cross(targetDir)
-		-- Note that this is sign not sine, just some basic adjustments.
 		local turnDirection = math.sign(cross.Y)
 		if turnDirection == 0 then turnDirection = 1 end
 
@@ -274,35 +240,32 @@ function MovementController:UpdateMovement(dt)
 	end
 
 	if moveVector.Magnitude > 0 then
-		-- Apply brake factor to reduce speed during sharp turns (deer-like movement).
-		-- When turning sharply, legs must plant and push off in a new direction,
-		-- causing a natural deceleration/"jerk" effect unlike wheels which roll continuously.
-		self:Move(params.CurrentFacingDirection * brakeFactor)
+		-- Climb gate: if the slope along facing exceeds MaxClimbAngle the
+		-- creature can't ascend it. This stops the character from walking
+		-- straight up cliffs (the previous behaviour) while still allowing
+		-- side-hill traversal and downhill movement, which keep their
+		-- normal speed.
+		local slope = self.Params.ForwardSlope or 0
+		if slope > (self.Params.MaxClimbAngle or 35) then
+			self:Move(Vector3.zero, dt)
+		else
+			self:Move(params.CurrentFacingDirection * brakeFactor, dt)
+		end
 	else
-		self:Move(Vector3.zero)
+		self:Move(Vector3.zero, dt)
 	end
 end
 
 function MovementController:UpdateStates(dt)
+	-- Movement stages, slowest to fastest: Idle, Walk, Trot, Run, Sprint.
+	-- Releasing input immediately transitions to Idle — the legacy momentum
+	-- carry-over has been removed. The server still ramps WalkSpeed down
+	-- smoothly via Stats.Accelerate, so the character decelerates naturally.
 	local char = self.Player.Character
 	if not char then return end
 	local hum = self.Humanoid
 	if not hum or hum.Parent ~= char then return end
 
-    --[[
-        Important information:
-        -> Here, while you stop moving (moveVecter.Magnitude == 0), we do not immediately
-           transition to "Idle". Instead, we enable a "momentum" effect that
-           allows the character to keep moving slightly for a short duration.
-           This is on paper obviously. In reality we choose to set "Idle" as the state
-           and have an independent, non-state-dependent momentum system that
-           uses MovementController:Move() to apply velocity to the last known facing direction.
-
-           Although this may seem unprofessional, it allows us to keep the state machine
-           simple and clean, while still achieving the desired momentum effect.
-           Not to mention, server has to set walkspeed to zero when stopping anyway.
-    ]]
-	-- on state change
 	local params = self.Params
 	local laststate = params.CurrentState
 
@@ -311,16 +274,13 @@ function MovementController:UpdateStates(dt)
 	local moveVector = self.ControlModule:GetMoveVector()
 
 	if moveVector.Magnitude <= 0 then
-		desiredState = params.MomentumActive and "Walk" or "Idle"
-	else
-		-- reset on player input
-		params.MomentumActive = false
+		desiredState = "Idle"
 	end
 
 	if params.LastDesiredState ~= desiredState then
 		params.LastDesiredState = desiredState
 		if self.Packets then
-			self.Packets.sprint.send({sprintType = desiredState})
+			self.Packets.sprint.send({ sprintType = desiredState })
 		end
 	end
 
@@ -329,93 +289,126 @@ function MovementController:UpdateStates(dt)
 		targetState = self:ConstrainState(desiredState)
 	end
 
-	-- Momentum only activates for Run and Sprint states (not Walk or Trot).
-	-- While momentum is active, maintain the previous state to keep correct animation.
-	local canUseMomentum = params.CurrentState == "Run" or params.CurrentState == "Sprint"
-	if targetState == "Idle" and params.CurrentState ~= "Idle" and params.MomentumActive == false and canUseMomentum then
-		params.MomentumActive = true
-		params.MomentumStartTime = os.clock()
-
-		-- Don't change state during momentum - keep current Run/Sprint state for correct animation
-		targetState = "Walk"
-		self.StateManager:TransitionTo(targetState)
-		params.CurrentState = "Walk"
-	end
-
-	-- on state change...
 	if laststate ~= targetState then
 		params.CurrentState = targetState
-		local success = self.StateManager:TransitionTo(params.CurrentState)
-
-        --[[
-        if targetState == "Idle" and params.CurrentState ~= "Idle" then
-            if not params.MomentumActive then
-                params.MomentumActive = true
-                params.MomentumStartTime = os.clock()
-
-                params.CurrentState = "Walk"
-                self.StateManager:TransitionTo("Walk")
-            end
-        elseif not params.MomentumActive then
-            -- handle idle separately.
-            params.CurrentState = targetState
-            local success = self.StateManager:TransitionTo(params.CurrentState)
-        end]]
-	end
-
-	-- Momentum
-	if params.MomentumActive then
-		local elapsed = os.clock() - params.MomentumStartTime
-		local progress = math.min(elapsed / params.MomentumDuration, 1)
-		local momentumFactor = (1 - progress) * params.MomentumStrength
-
-		if momentumFactor > 0.01 then
-			local momentumDirection = params.CurrentFacingDirection
-			if momentumDirection.Magnitude > 0 then
-				self:Move(momentumDirection * momentumFactor)
-			end
-		else
-			-- Momentum has ended, now transition to Idle
-			params.MomentumActive = false
-
-			local vel = self.HumanoidRootPart.AssemblyLinearVelocity
-			local currentSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
-
-			if currentSpeed <= 0 then
-				params.CurrentState = "Idle"
-				self.StateManager:TransitionTo("Idle")
-			end
-		end
+		self.StateManager:TransitionTo(params.CurrentState)
 	end
 end
 
-function MovementController:DetectTerrainSlope()
+-- Multi-sample ground probe.
+--
+-- We cast four downward rays from points arranged in a square around the
+-- HumanoidRootPart (front-right, front-left, back-right, back-left) at
+-- roughly hip height. The averaged normal of all hits is the plane fit
+-- for the ground under the character. This is the same technique used
+-- by Unity's CharacterController-based locomotion samples, Malbers
+-- Animal Controller, and most third-person AAA games — a single
+-- raycast picks up noise from polygon edges and small props, which is
+-- what produces the random "shoot up" snaps with rigid orientation.
+--
+-- Returns:
+--   normal          - averaged surface normal (world space)
+--   grounded        - true if at least 2 sample rays hit
+--   forwardSlopeDeg - signed slope angle along facing direction
+--                       (positive = uphill, negative = downhill)
+function MovementController:DetectGround(facingDir: Vector3)
 	local char = self.Player.Character
-	if not char then return Vector3.new(0, 1, 0) end
-	
 	local hrp = self.HumanoidRootPart
-	if not hrp or hrp.Parent ~= char then return Vector3.new(0, 1, 0) end
-	
-	local params = self.Params
-	if not params.TerrainAlignmentEnabled then return Vector3.new(0, 1, 0) end
-	
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = {char}
-	
-	local origin = hrp.Position
-	local direction = Vector3.new(0, -params.TerrainRaycastDistance, 0)
-	
-	-- Cast ray downward from HumanoidRootPart
-	local result = workspace:Raycast(origin, direction, raycastParams)
-	
-	if result then
-		-- Return the surface normal from the raycast hit
-		return result.Normal
+	if not char or not hrp or hrp.Parent ~= char then
+		return Vector3.yAxis, false, 0
 	end
-	
-	-- Default to up vector if no terrain detected
-	return Vector3.new(0, 1, 0)
+
+	local params = self.Params
+	local probeDist = params.TerrainRaycastDistance or 10
+
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = { char }
+
+	local size = hrp.Size
+	local halfX = math.max(size.X * 0.5, 0.5)
+	local halfZ = math.max(size.Z * 0.5, 0.5)
+	local halfY = size.Y * 0.5
+
+	-- Build facing-aligned axes so the probe square rotates with the
+	-- character (front-back / left-right are meaningful even when the
+	-- HRP CFrame is being driven by AlignOrientation).
+	local fwd = Vector3.new(facingDir.X, 0, facingDir.Z)
+	if fwd.Magnitude < 1e-3 then
+		fwd = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z)
+	end
+	fwd = fwd.Unit
+	local right = Vector3.new(fwd.Z, 0, -fwd.X)
+
+	local center = hrp.Position
+	local offsets = {
+		fwd *  halfZ + right *  halfX, -- FR
+		fwd *  halfZ + right * -halfX, -- FL
+		fwd * -halfZ + right *  halfX, -- BR
+		fwd * -halfZ + right * -halfX, -- BL
+	}
+
+	local castDir = Vector3.new(0, -(halfY + probeDist), 0)
+	local hitPoints = table.create(4)
+	local normalSum = Vector3.zero
+
+	for _, off in ipairs(offsets) do
+		local origin = center + off + Vector3.new(0, halfY * 0.5, 0)
+		local r = workspace:Raycast(origin, castDir, rp)
+		if r then
+			hitPoints[#hitPoints + 1] = r.Position
+			normalSum += r.Normal
+		end
+	end
+
+	local grounded = #hitPoints >= 2
+	if not grounded then
+		return Vector3.yAxis, false, 0
+	end
+
+	-- Plane fit: when we have 3+ hits, build a normal from cross products
+	-- of edges between hit points (averaged across all triangle pairs).
+	-- This is more stable than the raycast Normal at polygon edges.
+	local planeNormal
+	if #hitPoints >= 3 then
+		local n = Vector3.zero
+		local samples = 0
+		for i = 1, #hitPoints - 2 do
+			for j = i + 1, #hitPoints - 1 do
+				for k = j + 1, #hitPoints do
+					local e1 = hitPoints[j] - hitPoints[i]
+					local e2 = hitPoints[k] - hitPoints[i]
+					local c = e1:Cross(e2)
+					if c.Magnitude > 1e-4 then
+						if c.Y < 0 then c = -c end
+						n += c.Unit
+						samples += 1
+					end
+				end
+			end
+		end
+		planeNormal = (samples > 0 and n.Magnitude > 1e-3) and n.Unit or (normalSum / #hitPoints).Unit
+	else
+		planeNormal = (normalSum / #hitPoints).Unit
+	end
+
+	-- Forward slope: project facing onto the terrain plane and compare
+	-- to the world horizontal. Positive Y component => climbing.
+	local projected = fwd - planeNormal * fwd:Dot(planeNormal)
+	local forwardSlopeDeg = 0
+	if projected.Magnitude > 1e-3 then
+		projected = projected.Unit
+		local sinPitch = math.clamp(projected.Y, -1, 1)
+		forwardSlopeDeg = math.deg(math.asin(sinPitch))
+	end
+
+	return planeNormal, true, forwardSlopeDeg
+end
+
+-- Legacy helper kept for callers that just want the surface normal.
+function MovementController:DetectTerrainSlope()
+	local n = self:DetectGround(self.Params.CurrentFacingDirection)
+	return n
 end
 
 function MovementController:UpdatePhysicsControllers(dt)
@@ -451,30 +444,43 @@ function MovementController:UpdatePhysicsControllers(dt)
 
 	params.CurrentTilt = params.CurrentTilt + (targetTiltRad - params.CurrentTilt) * math.min(dt * params.TiltSpeed, 1)
 
-	-- Terrain Alignment
+	-- Terrain Alignment (quad-probe plane fit + airborne fallback).
 	local targetNormal = Vector3.yAxis
-	
-	if params.TerrainAlignmentEnabled then
-		targetNormal = self:DetectTerrainSlope()
-		
-		-- Restriction: Clamp maximum terrain angle to reduce extreme tilting
-		-- targetNormal is restricted to not exceed max pitch angle from vertical (Y axis)
-		local maxAngle = math.rad(params.MaxTerrainPitch or 45)
-		local currentAngle = math.acos(math.clamp(targetNormal:Dot(Vector3.yAxis), -1, 1))
+	local grounded = false
+	local forwardSlope = 0
 
-		if currentAngle > maxAngle then
-			local axis = Vector3.yAxis:Cross(targetNormal)
-			if axis.Magnitude > 0.001 then
-				-- Rotate Up vector towards target only up to maxAngle
-				targetNormal = CFrame.fromAxisAngle(axis.Unit, maxAngle):VectorToWorldSpace(Vector3.yAxis)
+	if params.TerrainAlignmentEnabled then
+		targetNormal, grounded, forwardSlope = self:DetectGround(params.CurrentFacingDirection)
+		params.LastGroundNormal = targetNormal
+		params.IsGrounded = grounded
+		params.ForwardSlope = forwardSlope
+
+		if grounded then
+			-- Hard cap: clamp the tilt between world Up and the terrain
+			-- normal to MaxTerrainAngle degrees (single stat that bounds
+			-- how dramatically the character can pitch / roll regardless
+			-- of axis).
+			local maxAngle = math.rad(params.MaxTerrainAngle or 40)
+			local currentAngle = math.acos(math.clamp(targetNormal:Dot(Vector3.yAxis), -1, 1))
+
+			if currentAngle > maxAngle then
+				local axis = Vector3.yAxis:Cross(targetNormal)
+				if axis.Magnitude > 0.001 then
+					targetNormal = CFrame.fromAxisAngle(axis.Unit, maxAngle):VectorToWorldSpace(Vector3.yAxis)
+				end
 			end
+		else
+			-- Airborne: no ground samples, lerp back to world Up so the
+			-- character doesn't keep the last hillside pose mid-jump /
+			-- mid-fall.
+			targetNormal = Vector3.yAxis
 		end
 	end
-	
+
 	-- Smoothing: Reduce intensity of changes (Lerp)
 	local alpha = math.clamp(dt * (params.TerrainAlignmentSpeed or 3), 0, 1)
 	params.CurrentTerrainNormal = params.CurrentTerrainNormal:Lerp(targetNormal, alpha)
-	
+
 	local usedNormal = params.CurrentTerrainNormal
 
 	-- actual math

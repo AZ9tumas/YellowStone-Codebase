@@ -12,7 +12,7 @@
 local remodel = require("./remodel")
 
 -- ========= CONFIG =========
-local PLACE_PATH = "./RaceThruTime.rbxl"
+local PLACE_PATH = "./YellowStone.rbxl"
 local SRC_ROOT   = "src"
 
 local SERVICE_NAMES = {
