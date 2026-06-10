@@ -215,8 +215,12 @@ function MovementController:UpdateMovement(dt)
 		targetDir = params.CurrentFacingDirection
 	end
 
+	-- use self.StateManager.currentState to get the correct base turnRate
+	local currentTurnRateID = self.StateManager.currentState .. "TurnRate"
+	local currentTurnRate = params[currentTurnRateID] or params.BaseTurnRate
+
 	local currentSpeed = hrp.AssemblyLinearVelocity.Magnitude
-	local maxTurnRate = Stats.GetMaxTurnRate(params.BaseTurnRate, currentSpeed, params.TurnSpeedDecay)
+	local maxTurnRate = Stats.GetMaxTurnRate(currentTurnRate, currentSpeed, params.TurnSpeedDecay)
 
 	local currentDir: Vector3 = params.CurrentFacingDirection
 	local dot = math.clamp(currentDir:Dot(targetDir), -1, 1)
