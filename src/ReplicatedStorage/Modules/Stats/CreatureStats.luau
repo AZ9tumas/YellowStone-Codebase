@@ -70,6 +70,7 @@ return {
 			["IdleStaminaGain"] = 18,
 
 			["MaxHealthSpeedPenalty"] = 0.15,
+			["StaminaPenaltyThreshold"] = 0.5,
 			["HealthPenaltyThreshold"] = 0.5,
 
 			["Acceleration"] = 25,
@@ -183,6 +184,7 @@ return {
 			["IdleStaminaGain"] = 18,
 
 			["MaxHealthSpeedPenalty"] = 0.15,
+			["StaminaPenaltyThreshold"] = 0.5,
 			["HealthPenaltyThreshold"] = 0.5,
 
 			["Acceleration"] = 25,

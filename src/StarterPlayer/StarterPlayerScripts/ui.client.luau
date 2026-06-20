@@ -14,8 +14,7 @@ local remotes = ReplicatedStorage:WaitForChild("Remotes")
 -- modules
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local commonM = require(modules:WaitForChild("Common"))
-local packets = require(modules:WaitForChild("Packets"))
-local spawnPacket = packets.spawn
+local Knit = require(ReplicatedStorage.Packages.Knit)
 
 -- ui
 local ScreenGui = playerGui:WaitForChild("Menu")
@@ -43,12 +42,10 @@ local function buttonClick(button: TextButton)
 	createTween(true)
 	
 	task.wait(1)
-	-- send packet here
-	spawnPacket.send({
-		charName = button.Name,
-		gender = "Male"
-	})
-	
+	-- request spawn via Knit (replaces the ByteNet spawn packet)
+	local SpawnService = Knit.GetService("SpawnService")
+	SpawnService:Spawn(button.Name, "Male"):catch(warn)
+
 	-- Wait for character to be replaced
 	local newChar = player.CharacterAdded:Wait()
 	workspace.CurrentCamera.CameraSubject = newChar:WaitForChild("HumanoidRootPart")
@@ -86,9 +83,11 @@ local function updateStats()
 		statsFrame.Health.Text = "Health: " .. tostring(char.Humanoid.Health):match("^(%d+)")
 		statsFrame.Speed.Text = "Speed: " .. tostring(vel):match("^(%d+)")
 		
-		local info = commonM.GetPlayerInfo(player)
-		if info.MaxStamina then
-			statsFrame.Stamina.Text = "Stamina: " .. tostring(staminaValue.Value * info.MaxStamina):match("^(%d+)")
+		if commonM.IsSpawned(player) then
+			local info = commonM.GetPlayerInfo(player)
+			if info.MaxStamina then
+				statsFrame.Stamina.Text = "Stamina: " .. tostring(staminaValue.Value * info.MaxStamina):match("^(%d+)")
+			end
 		end
 		if char:GetAttribute("Hunger") and char:GetAttribute("Thirst") then
 			HungerText.Text = "Hunger: " .. tostring(math.ceil(char:GetAttribute("Hunger")))
