@@ -455,13 +455,14 @@ function MovementController:KnitStart()
 
 	-- Movement-affecting input: Z/X cycle the active gait tiers.
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		print(self.object)
 		if gameProcessed or not self.object then
 			return
 		end
 		if input.KeyCode == Enum.KeyCode.Z then
-			self:ToggleWalkingStyle()
+			print(self:ToggleWalkingStyle())
 		elseif input.KeyCode == Enum.KeyCode.X then
-			self:ToggleRunningStyle()
+			print(self:ToggleRunningStyle())
 		end
 	end)
 

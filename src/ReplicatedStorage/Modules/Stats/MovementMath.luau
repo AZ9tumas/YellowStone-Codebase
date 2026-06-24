@@ -57,19 +57,29 @@ function MovementMath.Accelerate(
 	return currentSpeed + change
 end
 
--- Constrain a requested high-tier state down to whatever the current
--- physical speed actually supports. Prevents teleporting from Idle straight
--- into Sprint animation when the character has not had time to accelerate.
+-- Constrain a requested high-tier state down to whatever the current physical
+-- speed actually supports. Prevents teleporting from Idle straight into Sprint
+-- animation when the character has not had time to accelerate.
+--
+-- CRITICAL — the unlock test must be REACHABLE from the tier below. While a
+-- creature is in a given gait its terminal speed IS that gait's configured
+-- speed (the server ramps WalkSpeed -> info[gait.."Speed"]). So gating the next
+-- tier on (tierSpeed + margin) can never be satisfied: at Walk you cap at
+-- walkSpeed, which is below walkSpeed + margin, so Trot never unlocks and the
+-- creature deadlocks one tier under the requested gait — holding Shift appears
+-- to do nothing. We instead unlock the next gait once the creature has reached
+-- `unlockFraction` of the current tier's speed (just under its cap), producing a
+-- smooth Walk -> Trot -> Run/Sprint climb as it accelerates.
 function MovementMath.ConstrainState(
 	desiredState: string,
 	currentSpeed: number,
 	walkSpeed: number,
 	trotSpeed: number,
-	threshold: number?
+	unlockFraction: number?
 ): string
-	local t = threshold or 1.5
-	local canRunOrSprint = currentSpeed >= (trotSpeed + t)
-	local canTrot        = currentSpeed >= (walkSpeed + t)
+	local frac = unlockFraction or 0.85
+	local canRunOrSprint = currentSpeed >= (trotSpeed * frac)
+	local canTrot        = currentSpeed >= (walkSpeed * frac)
 
 	if desiredState == "Sprint" or desiredState == "Run" then
 		if canRunOrSprint then

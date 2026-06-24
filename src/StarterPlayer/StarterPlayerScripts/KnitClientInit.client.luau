@@ -15,6 +15,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 
+print("[Knit] Client starting...")
+script.Parent:WaitForChild("Controllers")
+
 Knit.AddControllers(script.Parent.Controllers)
 
 Knit.Start()
