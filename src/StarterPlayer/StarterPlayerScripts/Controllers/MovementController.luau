@@ -11,17 +11,23 @@
 	      facing.Unit * (Humanoid.WalkSpeed * brake)
 	    where Humanoid.WalkSpeed is driven only by MovementService. The client
 	    cannot exceed the server's speed.
-	  * Releasing input reports gait "Idle" -> server ramps WalkSpeed to 0 ->
-	    the magnitude above shrinks to 0 -> the creature DECELERATES to a stop
-	    instead of the instant Roblox halt. Acceleration from rest is the same in
-	    reverse.
+	  * The client sends only its INPUT INTENT (the gait the player is asking
+	    for) and only when it changes; the server ramps WalkSpeed toward it.
+	    Releasing input reports "Idle" -> WalkSpeed ramps to 0 -> the magnitude
+	    above shrinks to 0 -> the creature DECELERATES to a stop instead of the
+	    instant Roblox halt. Acceleration from rest is the reverse.
 
-	State:
-	  * Gait (Idle/Walk/Trot/Run/Sprint) is derived each frame by the StateMachine
-	    and reported to the server on change.
-	  * Actions (Eat/Drink/Fight) are requested via RequestAction; a freezing
-	    action (Eat/Drink) reports Idle + stops driving forward velocity. The
-	    StateMachine enforces all restrictions (e.g. no Eat while Sprinting).
+	State / animation:
+	  * The VISUAL gait (Idle/Walk/Trot/Run/Sprint) is read every frame from the
+	    server-driven, replicated WalkSpeed via Stats.GaitFromSpeed — pure speed
+	    bands, no buffer. It drives the ANIMATION, so it climbs the ladder while
+	    accelerating and descends it while coasting to a stop (the walk/run frames
+	    you see on release) at zero network cost.
+	  * The INTENT gait (from input) is the only locomotion value networked.
+	  * Actions (Eat/Drink/Fight/Rest) are requested via RequestAction; a freezing
+	    action (Eat/Drink/Rest) forces intent + visual gait to Idle and stops
+	    driving forward velocity. The StateMachine enforces all restrictions (e.g.
+	    no Eat while Sprinting).
 ]]
 
 local Players = game:GetService("Players")
@@ -144,22 +150,61 @@ local function buildContext(self, object)
 		walkStyle = object.walkStyle,
 		runStyle = object.runStyle,
 		currentSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude,
-		walkSpeed = object.info.WalkSpeed,
-		trotSpeed = object.info.TrotSpeed,
 	}
+end
+
+-- Locomotion INTENT from raw input: the gait the player is asking for, which is
+-- the target the server ramps WalkSpeed toward. A freezing action (Eat / Drink
+-- / Rest) overrides it to Idle so the server decelerates to a stop. This is the
+-- ONLY locomotion value sent over the network, and only when it changes.
+local function resolveIntent(sm, ctx)
+	if sm:FreezesMovement() or not ctx.hasMoveInput then
+		return "Idle"
+	end
+	return if ctx.shiftHeld then ctx.runStyle else ctx.walkStyle
+end
+
+-- VISUAL gait band from the server-driven WalkSpeed (the animation source).
+-- WalkSpeed replicates here for free, so reading the band each frame makes the
+-- animation climb the ladder while accelerating AND descend it while coasting
+-- to a stop. A freezing action shows Idle.
+local function resolveVisualGait(object, sm)
+	if sm:FreezesMovement() then
+		return "Idle"
+	end
+	return Stats.GaitFromSpeed(
+		object.Humanoid.WalkSpeed,
+		object.info.WalkSpeed,
+		object.info.TrotSpeed,
+		object.info.RunSpeed
+	)
 end
 
 local function updateState(self, object, ctx)
 	local sm = object.StateMachine
-	sm:AbortActionsIfNeeded(ctx)
-	sm:UpdateGait(ctx)
 
-	-- A freezing action (Eat/Drink) reports Idle so the server decelerates the
-	-- creature to a stop; otherwise report the live gait.
-	local reported = if sm:FreezesMovement() then "Idle" else sm:GetGait()
-	if reported ~= object.lastReported then
-		object.lastReported = reported
-		self.MovementService.SetState:Fire(reported)
+	-- Resting consumes movement input as a "stand up one posture" command rather
+	-- than locomotion. Step on the RISING edge of move input so one press = one
+	-- level (Rest2 -> Rest1 -> standing).
+	if sm:IsResting() then
+		if ctx.hasMoveInput and not object.lastMoveInput then
+			sm:ShallowRest()
+		end
+	else
+		sm:AbortActionsIfNeeded(ctx)
+	end
+	object.lastMoveInput = ctx.hasMoveInput
+
+	-- Animation: the visual gait tracks the actual (server-driven) speed. One
+	-- call, the animation id follows from the gait name (StateMachine.GaitChanged
+	-- -> AnimationController:PlayGait).
+	sm:SetGait(resolveVisualGait(object, sm))
+
+	-- Networking: report the input intent, only on a real change.
+	local intent = resolveIntent(sm, ctx)
+	if intent ~= object.lastIntent then
+		object.lastIntent = intent
+		self.MovementService.SetState:Fire(intent)
 	end
 end
 
@@ -348,7 +393,8 @@ function MovementController:_buildObject()
 
 		walkStyle = "Walk",
 		runStyle = "Sprint",
-		lastReported = nil,
+		lastIntent = nil,
+		lastMoveInput = false,
 	}
 
 	-- Animations follow StateMachine signals (single source of truth).
@@ -356,10 +402,13 @@ function MovementController:_buildObject()
 		animController:PlayGait(newGait)
 	end)
 	trove:Connect(sm.ActionChanged, function(newAction, oldAction)
+		-- Stop the outgoing track first so action -> action swaps (e.g.
+		-- Rest1 -> Rest2) don't leave the old pose layered underneath.
+		if oldAction then
+			animController:StopAction(oldAction)
+		end
 		if newAction and animController:HasAnimation(newAction) then
 			animController:PlayAction(newAction)
-		elseif oldAction then
-			animController:StopAction(oldAction)
 		end
 	end)
 
@@ -437,6 +486,12 @@ function MovementController:IsActionActive(name: string): boolean
 	return self.object ~= nil and self.object.StateMachine:GetAction() == name
 end
 
+-- True while the creature is in any resting posture (Rest1/Rest2). Controls are
+-- suppressed during rest; movement input rises one posture instead of moving.
+function MovementController:IsResting(): boolean
+	return self.object ~= nil and self.object.StateMachine:IsResting()
+end
+
 -- ===== Lifecycle =============================================================
 
 function MovementController:KnitInit()
@@ -453,16 +508,18 @@ function MovementController:KnitStart()
 		self:_buildObject()
 	end)
 
-	-- Movement-affecting input: Z/X cycle the active gait tiers.
+	-- Movement-affecting input: Z/X cycle the active gait tiers; R drives the
+	-- resting posture (enter / sink deeper — movement input rises back out).
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		print(self.object)
 		if gameProcessed or not self.object then
 			return
 		end
 		if input.KeyCode == Enum.KeyCode.Z then
-			print(self:ToggleWalkingStyle())
+			self:ToggleWalkingStyle()
 		elseif input.KeyCode == Enum.KeyCode.X then
-			print(self:ToggleRunningStyle())
+			self:ToggleRunningStyle()
+		elseif input.KeyCode == Enum.KeyCode.R then
+			self.object.StateMachine:DeepenRest()
 		end
 	end)
 

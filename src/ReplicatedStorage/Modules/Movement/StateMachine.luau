@@ -4,27 +4,28 @@
 	Per-character state controller. Deliberately small: it holds exactly two
 	pieces of state and exposes the operations the movement loop needs.
 
-	  gait   : string  -- current locomotion stage, DERIVED from input each frame
-	  action : string? -- current action (Eat/Drink/Fight/...), or nil
+	  gait   : string  -- current locomotion stage. SET each frame from the
+	                       server-driven WalkSpeed (MovementController +
+	                       Stats.GaitFromSpeed). This is the VISUAL state and
+	                       drives the animation; it is NOT the value sent to the
+	                       server (the controller sends the input intent).
+	  action : string? -- current action (Eat/Drink/Fight/Rest...), or nil
 
-	Why this is not the old StateManager:
-	  * No transition graph / priority table / restrictions registry. A gait is
-	    a pure function of input + speed (ResolveGait), so the "is this
-	    transition legal" question never arises and the two-store desync bug
-	    (params.CurrentState vs StateManager.currentState) is structurally
-	    impossible — there is one store.
-	  * Restrictions live with the action that owns them (blockedGaits / guard
-	    in MovementStates), evaluated at request time.
+	Why gait is speed-derived, not input-derived:
+	  * The server owns WalkSpeed and ramps it toward the player's input intent.
+	    Reading the visual gait from the (already replicated) WalkSpeed makes the
+	    animation climb the ladder while accelerating AND descend it while
+	    coasting to a stop, with zero extra network traffic.
+	  * There is one gait store, so the old two-store desync is impossible.
 
-	The context table (`ctx`) carries everything resolution + guards need:
+	Restrictions live with the action that owns them (blockedGaits / guard in
+	MovementStates), evaluated at request time from the context table (`ctx`):
 	  {
 	    hasMoveInput : boolean,
 	    shiftHeld    : boolean,
 	    walkStyle    : string,  -- "Walk" or "Trot"  (Z toggle)
 	    runStyle     : string,  -- "Run"  or "Sprint" (X toggle)
 	    currentSpeed : number,
-	    walkSpeed    : number,  -- creature config (for ConstrainState)
-	    trotSpeed    : number,  -- creature config
 	    -- guards may read anything added here later (stamina, grounded, ...)
 	  }
 ]]
@@ -33,7 +34,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Signal = require(ReplicatedStorage.Packages.Signal)
 local MovementStates = require(script.Parent.MovementStates)
-local Stats = require(ReplicatedStorage.Modules.Stats)
 
 local StateMachine = {}
 StateMachine.__index = StateMachine
@@ -44,8 +44,6 @@ export type Context = {
 	walkStyle: string,
 	runStyle: string,
 	currentSpeed: number,
-	walkSpeed: number,
-	trotSpeed: number,
 	[any]: any,
 }
 
@@ -63,20 +61,8 @@ function StateMachine.new()
 	return self
 end
 
--- Pure derivation: gait is a function of the current inputs, nothing else.
-function StateMachine:ResolveGait(ctx: Context): string
-	if not ctx.hasMoveInput then
-		return "Idle"
-	end
-
-	local desired = if ctx.shiftHeld then ctx.runStyle else ctx.walkStyle
-
-	-- Clamp an up-shift (e.g. Idle -> Sprint) down to whatever the creature has
-	-- physically accelerated to, so the animation/state never teleports ahead
-	-- of real speed.
-	return Stats.ConstrainState(desired, ctx.currentSpeed, ctx.walkSpeed, ctx.trotSpeed)
-end
-
+-- Gait is SET from speed by the controller (Stats.GaitFromSpeed), not resolved
+-- from input here. Fires GaitChanged on a real change; a no-op otherwise.
 function StateMachine:SetGait(name: string)
 	assert(MovementStates.IsGait(name), `StateMachine: "{tostring(name)}" is not a gait`)
 	if self.gait == name then
@@ -85,11 +71,6 @@ function StateMachine:SetGait(name: string)
 	local old = self.gait
 	self.gait = name
 	self.GaitChanged:Fire(name, old)
-end
-
--- Convenience: resolve + apply in one call.
-function StateMachine:UpdateGait(ctx: Context)
-	self:SetGait(self:ResolveGait(ctx))
 end
 
 -- Try to start an action. Returns (true) on success, or (false, reason) when a
@@ -103,6 +84,12 @@ function StateMachine:RequestAction(name: string, ctx: Context): (boolean, strin
 		return true
 	end
 
+	-- Resting owns the action slot and is exited via movement input, not by
+	-- starting another action — stand up first.
+	if self:IsResting() then
+		return false, "resting"
+	end
+
 	-- Restriction 1: blocked from the current gait (e.g. no Eat while Sprinting).
 	if def.blockedGaits and def.blockedGaits[self.gait] then
 		return false, `blocked while {self.gait}`
@@ -113,19 +100,67 @@ function StateMachine:RequestAction(name: string, ctx: Context): (boolean, strin
 		return false, "guard rejected"
 	end
 
-	local old = self.action
-	self.action = name
-	self.ActionChanged:Fire(name, old)
+	self:_setAction(name)
 	return true
 end
 
 function StateMachine:ClearAction()
-	if not self.action then
+	self:_setAction(nil)
+end
+
+-- Single mutation point for the action slot. Fires ActionChanged(new, old) on a
+-- real change; a no-op when the slot already holds `name`.
+function StateMachine:_setAction(name: string?)
+	if self.action == name then
 		return
 	end
 	local old = self.action
-	self.action = nil
-	self.ActionChanged:Fire(nil, old)
+	self.action = name
+	self.ActionChanged:Fire(name, old)
+end
+
+-- ===== Resting (layered posture) ============================================
+-- Resting is a stack of frozen postures (Rest1 -> Rest2). It reuses the single
+-- action slot, so it animates like any action and excludes Eat/Drink/Fight for
+-- free. R deepens it; movement input pops one level; popping past Rest1 stands
+-- the creature back up. Depth is DERIVED from the action name — no second store
+-- to desync.
+StateMachine.RestLevels = { "Rest1", "Rest2" } -- index === depth
+
+function StateMachine:GetRestDepth(): number
+	for depth, name in ipairs(StateMachine.RestLevels) do
+		if self.action == name then
+			return depth
+		end
+	end
+	return 0
+end
+
+function StateMachine:IsResting(): boolean
+	return self:GetRestDepth() > 0
+end
+
+-- R key: enter resting, or sink one posture deeper. Capped at the deepest
+-- level. Ignored while a non-rest action (Eat/Drink/Fight) owns the slot.
+function StateMachine:DeepenRest()
+	if self.action and not self:IsResting() then
+		return
+	end
+	local depth = self:GetRestDepth()
+	local nextDepth = math.min(depth + 1, #StateMachine.RestLevels)
+	if nextDepth ~= depth then
+		self:_setAction(StateMachine.RestLevels[nextDepth])
+	end
+end
+
+-- Movement input: rise one posture shallower. Rising past Rest1 stands up.
+-- No-op when not resting.
+function StateMachine:ShallowRest()
+	local depth = self:GetRestDepth()
+	if depth == 0 then
+		return
+	end
+	self:_setAction(if depth == 1 then nil else StateMachine.RestLevels[depth - 1])
 end
 
 -- Cancel the active action if movement input arrives and the action declares

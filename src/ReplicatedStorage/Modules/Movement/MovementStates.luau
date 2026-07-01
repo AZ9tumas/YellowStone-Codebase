@@ -5,11 +5,11 @@
 	behaviour, no Roblox instances. The state system is split into two
 	orthogonal layers and this table describes both:
 
-	  * GAIT   — locomotion stages (Idle/Walk/Trot/Run/Sprint). These are
-	             *derived* every frame from input + speed (see StateMachine
-	             :ResolveGait). There is deliberately NO transition graph: a
-	             gait is a function of the current inputs, not of the previous
-	             gait, so it can never desync.
+	  * GAIT   — locomotion stages (Idle/Walk/Trot/Run/Sprint). The VISUAL gait
+	             is *derived* every frame from the server-driven WalkSpeed (see
+	             Stats.GaitFromSpeed) — pure speed bands. There is deliberately
+	             NO transition graph: a gait is a function of the current speed,
+	             not of the previous gait, so it can never desync.
 
 	  * ACTION — discrete, guarded, interruptible activities (Eat/Drink/Fight,
 	             and anything added later). Only one action runs at a time. An
@@ -46,8 +46,8 @@ MovementStates.Category = {
 	Action = "Action" :: Category,
 }
 
--- Ordered gait tiers, slowest to fastest. Index === tier. Used by gait
--- resolution and by Stats.ConstrainState to clamp up-shifts.
+-- Ordered gait tiers, slowest to fastest. Index === tier. Reference ordering
+-- for the Idle -> Walk -> Trot -> Run -> Sprint speed ladder.
 MovementStates.GaitOrder = { "Idle", "Walk", "Trot", "Run", "Sprint" }
 
 MovementStates.Definitions = {
@@ -77,6 +77,24 @@ MovementStates.Definitions = {
 		freezesMovement = false, -- Fight causes movement; treated like eat/drink otherwise
 		abortOnMove = false,
 		blockedGaits = {},
+	},
+
+	-- Resting is a layered posture (Rest1 -> Rest2). It freezes locomotion like
+	-- Eat/Drink, but movement input does NOT plainly abort it — the StateMachine
+	-- steps it one level shallower instead (see DeepenRest / ShallowRest), so
+	-- abortOnMove stays false here. Animations are TBD; the states exist now so
+	-- the controls + freeze behaviour work and a track can be dropped in later.
+	Rest1 = {
+		category = "Action",
+		animation = "Rest1",
+		freezesMovement = true,
+		abortOnMove = false,
+	},
+	Rest2 = {
+		category = "Action",
+		animation = "Rest2",
+		freezesMovement = true,
+		abortOnMove = false,
 	},
 } :: { [string]: StateDefinition }
 

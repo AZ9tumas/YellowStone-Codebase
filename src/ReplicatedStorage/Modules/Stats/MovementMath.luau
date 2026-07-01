@@ -14,15 +14,20 @@ function MovementMath.GetMaxTurnRate(baseTurnRate: number, currentSpeed: number,
 	return baseTurnRate / (1 + (currentSpeed * turnSpeedDecay))
 end
 
--- Brake factor applied to forward speed during a turn.
--- Sharper turns + higher speeds cause stronger deceleration ("plant & push off"
--- feel rather than a wheeled drift). Clamped to [0.05, 1] so the character
--- never freezes mid-turn.
+-- Brake factor applied to forward speed during a turn. Sharper turns taken at
+-- higher speed shed more momentum ("plant & push off" rather than a wheeled
+-- drift), but only gently — a single readable penalty term instead of the old
+-- compounding hyperbola, which slowed gentle turns far too hard (a 90° turn
+-- used to drop you to ~13% speed). Now:
+--   straight  -> 1.00      45° @ full speed -> ~0.89
+--   90°       -> ~0.78     180° @ full speed -> ~0.55
+-- and at a crawl you keep almost all your speed (pivot freely). Floored at 0.4
+-- so the creature never stalls mid-turn.
 function MovementMath.GetBrakeFactor(angleDiff: number, currentSpeed: number, turnBrakeSensitivity: number): number
-	local speedFactor = math.clamp(currentSpeed / 30, 0, 1)
-	local baseBrakeFactor = 1 / (1 + (angleDiff * turnBrakeSensitivity))
-	local brakeFactor = baseBrakeFactor * (1 - (speedFactor * angleDiff * 0.15))
-	return math.clamp(brakeFactor, 0.05, 1)
+	local sharpness = angleDiff / math.pi -- 0 = straight, 1 = full reversal
+	local speedFactor = math.clamp(currentSpeed / 50, 0, 1)
+	local penalty = sharpness * speedFactor * turnBrakeSensitivity * 0.15
+	return math.clamp(1 - penalty, 0.4, 1)
 end
 
 -- Multiplier applied to turn rate when redirecting. Sharper desired angle
@@ -57,43 +62,30 @@ function MovementMath.Accelerate(
 	return currentSpeed + change
 end
 
--- Constrain a requested high-tier state down to whatever the current physical
--- speed actually supports. Prevents teleporting from Idle straight into Sprint
--- animation when the character has not had time to accelerate.
+-- Visual gait band for a given speed. Exact thresholds, NO buffer: a creature
+-- at exactly walkSpeed is still Walking, at exactly trotSpeed still Trotting,
+-- and so on. Anything above runSpeed is Sprint; zero (or below) is Idle.
 --
--- CRITICAL — the unlock test must be REACHABLE from the tier below. While a
--- creature is in a given gait its terminal speed IS that gait's configured
--- speed (the server ramps WalkSpeed -> info[gait.."Speed"]). So gating the next
--- tier on (tierSpeed + margin) can never be satisfied: at Walk you cap at
--- walkSpeed, which is below walkSpeed + margin, so Trot never unlocks and the
--- creature deadlocks one tier under the requested gait — holding Shift appears
--- to do nothing. We instead unlock the next gait once the creature has reached
--- `unlockFraction` of the current tier's speed (just under its cap), producing a
--- smooth Walk -> Trot -> Run/Sprint climb as it accelerates.
-function MovementMath.ConstrainState(
-	desiredState: string,
-	currentSpeed: number,
+-- The server ramps WalkSpeed smoothly toward the player's intent, so reading
+-- this band each frame makes the ANIMATION climb the ladder while accelerating
+-- and descend it while coasting to a stop — derived locally from the already
+-- replicated WalkSpeed, so it costs no network traffic.
+function MovementMath.GaitFromSpeed(
+	speed: number,
 	walkSpeed: number,
 	trotSpeed: number,
-	unlockFraction: number?
+	runSpeed: number
 ): string
-	local frac = unlockFraction or 0.85
-	local canRunOrSprint = currentSpeed >= (trotSpeed * frac)
-	local canTrot        = currentSpeed >= (walkSpeed * frac)
-
-	if desiredState == "Sprint" or desiredState == "Run" then
-		if canRunOrSprint then
-			return desiredState
-		end
+	if speed <= 0 then
+		return "Idle"
+	elseif speed <= walkSpeed then
+		return "Walk"
+	elseif speed <= trotSpeed then
+		return "Trot"
+	elseif speed <= runSpeed then
+		return "Run"
 	end
-
-	if desiredState == "Trot" or desiredState == "Sprint" or desiredState == "Run" then
-		if canTrot then
-			return "Trot"
-		end
-	end
-
-	return "Walk"
+	return "Sprint"
 end
 
 return MovementMath
