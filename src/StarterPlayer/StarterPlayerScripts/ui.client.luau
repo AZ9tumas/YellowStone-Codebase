@@ -29,10 +29,22 @@ local horise: TextButton = ScreenGui:WaitForChild("Horsie")
 local muleDeer: TextButton = ScreenGui:WaitForChild("MuleDeer")
 local statsFrame: Frame = ScreenGui:WaitForChild("Frame")
 local fadeFrame: Frame = ScreenGui:WaitForChild("Transition")
-local HungerText: TextBox = statsFrame:WaitForChild("Food_Thirst"):WaitForChild("Hunger")
-local ThirstText: TextBox = statsFrame:WaitForChild("Food_Thirst"):WaitForChild("Thirst")
+local HungerText: TextBox = statsFrame:WaitForChild("Hunger")
+local ThirstText: TextBox = statsFrame:WaitForChild("Thirst")
 
 local staminaValue: NumberValue = player:WaitForChild("PlayerStats"):WaitForChild("Stamina")
+
+-- Movement debug read-outs. All labels live in the Menu.Frame (added in Studio);
+-- we only reference them here.
+local BreakText: TextLabel = statsFrame:WaitForChild("Break")
+local AngleText: TextLabel = statsFrame:WaitForChild("Angle")
+local StateText: TextLabel = statsFrame:WaitForChild("State")
+local TurnRateText: TextLabel = statsFrame:WaitForChild("TurnRate")
+local TurnRPSText: TextLabel = statsFrame:WaitForChild("TurnRPS")
+local CamRateText: TextLabel = statsFrame:WaitForChild("CamRate")
+local MaxTurnText: TextLabel = statsFrame:WaitForChild("MaxTurn")
+
+local movementController -- populated once Knit.OnStart fires
 
 local buttons: { TextButton } = { horise, muleDeer }
 
@@ -90,6 +102,7 @@ end
 Knit.OnStart():andThen(function()
 	local SpawnService = Knit.GetService("SpawnService")
 	local LoadingController = Knit.GetController("LoadingController")
+	movementController = Knit.GetController("MovementController")
 
 	-- A successful morph finishes the visual transition. Driven off Spawned (the
 	-- canonical "you are morphed" event) instead of CharacterAdded, so a failed
@@ -145,9 +158,26 @@ local function updateStats()
 	if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
 		local hmr = char:FindFirstChild("HumanoidRootPart")
 		if not hmr then return end
-		local vel = char.Humanoid.WalkSpeed
 		statsFrame.Health.Text = "Health: " .. tostring(char.Humanoid.Health):match("^(%d+)")
-		statsFrame.Speed.Text = "Speed: " .. tostring(vel):match("^(%d+)")
+
+		-- Speed = actual horizontal physics velocity (AssemblyLinearVelocity), so it
+		-- reflects the real movement after the client-side turn brake, unlike the
+		-- server's WalkSpeed target.
+		local av = hmr.AssemblyLinearVelocity
+		statsFrame.Speed.Text = string.format("Speed: %.1f", Vector3.new(av.X, 0, av.Z).Magnitude)
+
+		-- Break = turn-speed penalty · Angle = facing-to-input gap (deg)
+		-- TurnRate = turnRPS / maxTurn (raw) · TurnRPS = turn rate (rad/s)
+		-- CamRate = camera yaw rate (rad/s) · MaxTurn = gait's turn cap (rad/s)
+		if movementController then
+			BreakText.Text = string.format("Break: %.2f", movementController:GetTurnBrake())
+			AngleText.Text = string.format("Angle: %.1f", movementController:GetTurnAngle())
+			TurnRateText.Text = string.format("TurnRate: %.2f", movementController:GetTurnRateFraction())
+			TurnRPSText.Text = string.format("TurnRPS: %.2f", movementController:GetTurnRateRPS())
+			CamRateText.Text = string.format("CamRate: %.2f", movementController:GetCamYawRate())
+			MaxTurnText.Text = string.format("MaxTurn: %.2f", movementController:GetMaxTurnRate())
+			StateText.Text = "State: " .. movementController:GetState()
+		end
 
 		if commonM.IsSpawned(player) then
 			local info = commonM.GetPlayerInfo(player)

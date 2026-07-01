@@ -132,13 +132,13 @@ return {
 			["Acceleration"] = 60,
 			["Deceleration"] = 60,
 
-			["BaseTurnRate"] = 10,        -- Slower turning circle when stopped
+			["BaseTurnRate"] = 10,        -- turning circle when stopped
 			["IdleTurnRate"] = 10,        -- Turning circle when idle (overrides BaseTurnRate)
-			["WalkTurnRate"] = 8,         -- Turning circle when walking
+			["WalkTurnRate"] = 6,         -- Turning circle when walking
 			["TrotTurnRate"] = 6,         -- Turning circle when trotting
 			["RunTurnRate"] = 4,          -- Turning circle when running
-			["SprintTurnRate"] = 2,       -- Turning circle when sprinting (overrides BaseTurnRate)
-			["SwimmingTurnRate"] = 5,     -- Turning circle when swimming
+			["SprintTurnRate"] = 4,       -- Turning circle when sprinting (overrides BaseTurnRate)
+			["SwimmingTurnRate"] = 4,     -- Turning circle when swimming
 
 			["TurnSpeedDecay"] = 0.04,      -- Speed reduces turn ability significantly
 			["TurnBrakeSensitivity"] = 2.6, -- Brakes hard when trying to turn sharp

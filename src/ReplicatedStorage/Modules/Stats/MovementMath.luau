@@ -8,32 +8,31 @@
 
 local MovementMath = {}
 
--- Turning circle gets wider as speed increases.
---   maxTurnRate = baseTurnRate / (1 + currentSpeed * turnSpeedDecay)
-function MovementMath.GetMaxTurnRate(baseTurnRate: number, currentSpeed: number, turnSpeedDecay: number): number
-	return baseTurnRate / (1 + (currentSpeed * turnSpeedDecay))
-end
+-- Turn-brake band, expressed as ANGLES (framerate-independent). Below FREE the
+-- demanded heading change costs nothing — holding a line only ever asks for a
+-- fraction of a degree (camera-relative move-vector noise), which must not bleed
+-- speed. The penalty ramps up to full by FULL.
+local TURN_ANGLE_FREE = math.rad(5)
+local TURN_ANGLE_FULL = math.rad(75)
 
--- Brake factor applied to forward speed during a turn. Sharper turns taken at
--- higher speed shed more momentum ("plant & push off" rather than a wheeled
--- drift), but only gently — a single readable penalty term instead of the old
--- compounding hyperbola, which slowed gentle turns far too hard (a 90° turn
--- used to drop you to ~13% speed). Now:
---   straight  -> 1.00      45° @ full speed -> ~0.89
---   90°       -> ~0.78     180° @ full speed -> ~0.55
--- and at a crawl you keep almost all your speed (pivot freely). Floored at 0.4
--- so the creature never stalls mid-turn.
-function MovementMath.GetBrakeFactor(angleDiff: number, currentSpeed: number, turnBrakeSensitivity: number): number
-	local sharpness = angleDiff / math.pi -- 0 = straight, 1 = full reversal
-	local speedFactor = math.clamp(currentSpeed / 50, 0, 1)
-	local penalty = sharpness * speedFactor * turnBrakeSensitivity * 0.15
-	return math.clamp(1 - penalty, 0.4, 1)
-end
-
--- Multiplier applied to turn rate when redirecting. Sharper desired angle
--- => faster turn so the character finishes aligning quicker.
-function MovementMath.GetTurnBoost(angleDiff: number): number
-	return 1 + (angleDiff * 0.5)
+-- Speed multiplier from how SHARP a turn the player is DEMANDING this frame:
+-- `angleDiff` is the angle between the current heading and the desired (input)
+-- heading. Straight / micro-correction => 1; a hard turn => heavy penalty.
+--
+-- Why the ANGLE and not a turn rate: a per-frame rate is angleDiff / dt, which
+-- explodes at high FPS for the SAME tiny heading gap (a constant 0.72° gap read
+-- 0.18 at 60 FPS but 0.43 at 138 FPS), so the brake became framerate-dependent
+-- and bit while sprinting straight. The raw angle is frame-rate invariant.
+--
+-- The per-state max turn rate is still honoured — it caps how fast the creature
+-- rotates, so a sharp turn at a slow-turning gait (Sprint) keeps this penalty
+-- applied for MORE frames -> more total speed shed, exactly as intended.
+--
+-- Speed ∝ 1 / (1 + charged · sensitivity); floored so it slows hard but never
+-- freezes.
+function MovementMath.GetTurnSpeedFactor(angleDiff: number, sensitivity: number): number
+	local charged = math.clamp((angleDiff - TURN_ANGLE_FREE) / (TURN_ANGLE_FULL - TURN_ANGLE_FREE), 0, 1)
+	return math.clamp(1 / (1 + charged * sensitivity), 0.1, 1)
 end
 
 -- One-step speed integration toward `targetSpeed` using separate

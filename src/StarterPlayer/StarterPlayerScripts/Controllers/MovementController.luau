@@ -56,6 +56,11 @@ local MovementController = Knit.CreateController({ Name = "MovementController" }
 local REST_PITCH = { -math.rad(15), -math.rad(32) } -- index === rest depth (1 = Rest1, 2 = Rest2)
 local REST_PITCH_SPEED = 6
 
+-- How quickly the turn-speed penalty eases in and out (per second). Higher =
+-- snappier decelerate-into / accelerate-out-of a turn; lower = floatier. Purely
+-- a client-side feel knob.
+local TURN_BRAKE_RESPONSE = 10
+
 -- ===== Ground probe ==========================================================
 -- Four downward rays in a facing-aligned square around the HRP; averaged /
 -- plane-fit normal + signed forward slope. (Ported unchanged — it was sound.)
@@ -215,10 +220,9 @@ local function updateState(self, object, ctx)
 	end
 end
 
--- Turning + velocity. Returns the brake factor (used nowhere else but kept
--- explicit for clarity).
+-- Turning + velocity. Turning is free (capped per gait); the speed penalty is
+-- paid from the rate of orientation change. All client-side.
 local function updateMovement(self, object, ctx, dt)
-	local hrp = object.HRP
 	local sm = object.StateMachine
 
 	-- Target direction (camera-relative input, flattened) or hold facing.
@@ -231,37 +235,66 @@ local function updateMovement(self, object, ctx, dt)
 		end
 	end
 
-	-- Speed-dependent turn rate. Per-state turn rate (if the creature defines
-	-- one) overrides the guaranteed BaseTurnRate — the allowed "specific over
-	-- general" fallback, never a data-masking default.
+	-- Turning is FREE: always turn toward the target at the max rate the current
+	-- gait allows (the per-state TurnRate; BaseTurnRate is the guaranteed fallback
+	-- for gaits that don't define their own). Speed no longer throttles the turn.
 	local gait = sm:GetGait()
-	local turnRate = object.info[gait .. "TurnRate"] or object.info.BaseTurnRate
-	local currentSpeed = hrp.AssemblyLinearVelocity.Magnitude
-	local maxTurnRate = Stats.GetMaxTurnRate(turnRate, currentSpeed, object.info.TurnSpeedDecay)
+	local maxTurnRate = object.info[gait .. "TurnRate"] or object.info.BaseTurnRate
 
 	local currentDir = object.Facing
 	local dot = math.clamp(currentDir:Dot(targetDir), -1, 1)
 	local angleDiff = math.acos(dot)
-	local brake = Stats.GetBrakeFactor(angleDiff, currentSpeed, object.info.TurnBrakeSensitivity)
+	object.TurnAngleDeg = math.deg(angleDiff) -- stored for debug display
 
 	-- While resting, controls are fully disabled: no turning here, and the
 	-- velocity is zeroed below via FreezesMovement(). Movement input is consumed
 	-- only to pop rest levels (see updateState).
+	local appliedTurn = 0
 	if ctx.hasMoveInput and angleDiff > 0.001 and not sm:IsResting() then
-		local boosted = maxTurnRate * Stats.GetTurnBoost(angleDiff)
-		local maxStep = boosted * dt
-		local cross = currentDir:Cross(targetDir)
-		local turnSign = math.sign(cross.Y)
+		local maxStep = maxTurnRate * dt -- the gait's max turn-angle this frame
+		appliedTurn = math.min(angleDiff, maxStep)
+		local turnSign = math.sign(currentDir:Cross(targetDir).Y)
 		if turnSign == 0 then
 			turnSign = 1
 		end
-		local alpha = math.min(angleDiff, maxStep)
-		object.Facing = (CFrame.Angles(0, alpha * turnSign, 0) * currentDir).Unit
+		object.Facing = (CFrame.Angles(0, appliedTurn * turnSign, 0) * currentDir).Unit
 	end
 
-	-- Velocity: always facing.Unit * (WalkSpeed * brake). Magnitude is owned by
-	-- the server (WalkSpeed). We do NOT zero it on input release — the server
-	-- ramps WalkSpeed to 0 and the magnitude follows, producing deceleration.
+	-- Speed is INVERSELY proportional to the rate of orientation change: the
+	-- faster we reorient (relative to the gait's max turn rate) the more speed we
+	-- shed, so a sharp turn bleeds a lot and a straight line none. Eased so we
+	-- decelerate into the turn and accelerate back out, and it recovers once the
+	-- heading stabilises. This stays 100% client-side — the server keeps ramping
+	-- WalkSpeed toward the gait intent and never learns about the turn, so the
+	-- networking is untouched.
+	local turnRateNow = appliedTurn / dt
+	-- Raw turn rate as a fraction of the gait's max (debug read-out). Deliberately
+	-- NOT clamped so a value > 1 would reveal the per-frame turn cap being blown.
+	object.TurnRateFraction = turnRateNow / maxTurnRate
+	object.TurnRateRPS = turnRateNow
+	object.MaxTurnRate = maxTurnRate
+
+	-- Diagnostic: camera yaw angular velocity (rad/s). Reveals whether the camera
+	-- itself is rotating while the player holds a straight line (feeds CamRate).
+	local camLook = camera.CFrame.LookVector
+	camLook = Vector3.new(camLook.X, 0, camLook.Z)
+	if camLook.Magnitude > 1e-4 then
+		camLook = camLook.Unit
+		local prevCam = object.LastCamLook or camLook
+		object.CamYawRate = math.acos(math.clamp(prevCam:Dot(camLook), -1, 1)) / dt
+		object.LastCamLook = camLook
+	end
+
+	-- Speed penalty is based on the DEMANDED turn ANGLE (framerate-independent),
+	-- not the per-frame rate, then eased for a smooth decelerate-into / accelerate-
+	-- out of the turn. 100% client-side; the server never learns about the turn.
+	local targetBrake = Stats.GetTurnSpeedFactor(angleDiff, object.info.TurnBrakeSensitivity)
+	object.TurnBrake = object.TurnBrake + (targetBrake - object.TurnBrake) * math.min(dt * TURN_BRAKE_RESPONSE, 1)
+
+	-- Velocity: always facing.Unit * (WalkSpeed * TurnBrake). Magnitude is owned
+	-- by the server (WalkSpeed); we only shave it locally for turns. We do NOT
+	-- zero it on input release — the server ramps WalkSpeed to 0 and the magnitude
+	-- follows, producing deceleration.
 	local lv = object.BodyMovers.LinearVelocity
 	if not lv or not lv.Parent then
 		return
@@ -272,7 +305,7 @@ local function updateMovement(self, object, ctx, dt)
 	if freezing or blockedClimb then
 		lv.PlaneVelocity = Vector2.zero
 	else
-		local v = object.Facing * (object.Humanoid.WalkSpeed * brake)
+		local v = object.Facing * (object.Humanoid.WalkSpeed * object.TurnBrake)
 		lv.PlaneVelocity = Vector2.new(v.X, v.Z)
 	end
 end
@@ -403,6 +436,7 @@ function MovementController:_buildObject()
 		LastFacing = hrp.CFrame.LookVector,
 		Tilt = 0,
 		RestPitch = 0,
+		TurnBrake = 1,
 		CFrame = hrp.CFrame,
 		TerrainNormal = Vector3.yAxis,
 		Grounded = true,
@@ -510,6 +544,53 @@ end
 -- suppressed during rest; movement input rises one posture instead of moving.
 function MovementController:IsResting(): boolean
 	return self.object ~= nil and self.object.StateMachine:IsResting()
+end
+
+-- Current eased speed-penalty from turning (1 = no penalty, 0.1 = hard turn).
+-- Exposed for debug display; will be 1 when no character is loaded.
+function MovementController:GetTurnBrake(): number
+	return self.object and self.object.TurnBrake or 1
+end
+
+-- Current angle between facing and input-target direction (degrees).
+-- 0 = heading straight toward input; 180 = full reversal. Debug display.
+function MovementController:GetTurnAngle(): number
+	return self.object and self.object.TurnAngleDeg or 0
+end
+
+-- Raw turn rate as a fraction of the gait's max turn rate. UNCLAMPED, so a debug
+-- read-out can reveal if it ever exceeds 1 (turning faster than the gait allows).
+function MovementController:GetTurnRateFraction(): number
+	return self.object and self.object.TurnRateFraction or 0
+end
+
+-- Diagnostic getters (debug HUD): raw turn rate (rad/s), the gait's max turn
+-- rate, and the camera's yaw angular velocity (rad/s).
+function MovementController:GetTurnRateRPS(): number
+	return self.object and self.object.TurnRateRPS or 0
+end
+
+function MovementController:GetMaxTurnRate(): number
+	return self.object and self.object.MaxTurnRate or 0
+end
+
+function MovementController:GetCamYawRate(): number
+	return self.object and self.object.CamYawRate or 0
+end
+
+-- Live locomotion/action state for debug display: the visual gait, plus the
+-- active action (Eat/Drink/Fight/Rest1/Rest2) when one is running.
+function MovementController:GetState(): string
+	local obj = self.object
+	if not obj then
+		return "—"
+	end
+	local sm = obj.StateMachine
+	local action = sm:GetAction()
+	if action then
+		return sm:GetGait() .. " / " .. action
+	end
+	return sm:GetGait()
 end
 
 -- ===== Lifecycle =============================================================
