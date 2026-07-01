@@ -49,6 +49,13 @@ local camera = workspace.CurrentCamera
 
 local MovementController = Knit.CreateController({ Name = "MovementController" })
 
+-- Placeholder resting pose until Rest1/Rest2 animations exist: a gentle nose-
+-- down lean that deepens per rest level, applied through the normal orientation
+-- pipeline (orientation only, no physics change). Purely cosmetic so the state
+-- is visible now — delete these two lines once real rest animations land.
+local REST_PITCH = { -math.rad(15), -math.rad(32) } -- index === rest depth (1 = Rest1, 2 = Rest2)
+local REST_PITCH_SPEED = 6
+
 -- ===== Ground probe ==========================================================
 -- Four downward rays in a facing-aligned square around the HRP; averaged /
 -- plane-fit normal + signed forward slope. (Ported unchanged — it was sound.)
@@ -237,7 +244,10 @@ local function updateMovement(self, object, ctx, dt)
 	local angleDiff = math.acos(dot)
 	local brake = Stats.GetBrakeFactor(angleDiff, currentSpeed, object.info.TurnBrakeSensitivity)
 
-	if ctx.hasMoveInput and angleDiff > 0.001 then
+	-- While resting, controls are fully disabled: no turning here, and the
+	-- velocity is zeroed below via FreezesMovement(). Movement input is consumed
+	-- only to pop rest levels (see updateState).
+	if ctx.hasMoveInput and angleDiff > 0.001 and not sm:IsResting() then
 		local boosted = maxTurnRate * Stats.GetTurnBoost(angleDiff)
 		local maxStep = boosted * dt
 		local cross = currentDir:Cross(targetDir)
@@ -283,6 +293,12 @@ local function updateOrientation(self, object, dt)
 	local targetTiltRad = math.clamp(turnRateNow * info.TiltSensitivity, -math.rad(info.MaxTiltAngle), math.rad(info.MaxTiltAngle))
 	object.Tilt = object.Tilt + (targetTiltRad - object.Tilt) * math.min(dt * info.TiltSpeed, 1)
 
+	-- Placeholder resting lean: ease toward the pose for the current rest depth
+	-- (0 when standing). Cosmetic only — remove with REST_PITCH when animated.
+	local restDepth = object.StateMachine:GetRestDepth()
+	local targetRestPitch = if restDepth > 0 then REST_PITCH[restDepth] else 0
+	object.RestPitch = object.RestPitch + (targetRestPitch - object.RestPitch) * math.min(dt * REST_PITCH_SPEED, 1)
+
 	local targetNormal = Vector3.yAxis
 	if info.TerrainAlignmentEnabled then
 		local normal, grounded, slope = detectGround(object, object.Facing)
@@ -310,7 +326,7 @@ local function updateOrientation(self, object, dt)
 	end
 
 	local targetCF = CFrame.fromMatrix(Vector3.zero, rightVec, object.TerrainNormal)
-	object.CFrame = targetCF * CFrame.Angles(0, 0, object.Tilt)
+	object.CFrame = targetCF * CFrame.Angles(object.RestPitch, 0, object.Tilt)
 	ao.CFrame = object.CFrame
 end
 
@@ -386,6 +402,7 @@ function MovementController:_buildObject()
 		Facing = hrp.CFrame.LookVector,
 		LastFacing = hrp.CFrame.LookVector,
 		Tilt = 0,
+		RestPitch = 0,
 		CFrame = hrp.CFrame,
 		TerrainNormal = Vector3.yAxis,
 		Grounded = true,
@@ -410,6 +427,9 @@ function MovementController:_buildObject()
 		if newAction and animController:HasAnimation(newAction) then
 			animController:PlayAction(newAction)
 		end
+		-- Publish the resting posture (0 = standing, 1 = Rest1, 2 = Rest2) as a
+		-- single value for UI / future rest animations to react to.
+		humanoid:SetAttribute("RestState", sm:GetRestDepth())
 	end)
 
 	-- Reset any leftover velocity, prime the idle gait animation.
