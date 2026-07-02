@@ -152,8 +152,8 @@ return {
 			["TerrainAlignmentSpeed"] = 6,
 			["MaxTerrainPitch"] = 45,
 			["MaxTerrainRoll"] = 30,
-			["MaxTerrainAngle"] = 40, -- Hard cap on overall terrain tilt (deg)
-			["MaxClimbAngle"] = 35, -- Forward slope past which the creature cannot climb (deg)
+			["MaxTerrainAngle"] = 50, -- Hard cap on overall terrain tilt (deg)
+			["MaxClimbAngle"] = 45, -- Forward slope past which the creature cannot climb (deg)
 			["TerrainRaycastDistance"] = 35,
 
 			["AttackDamage"] = 30,

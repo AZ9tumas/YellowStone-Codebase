@@ -184,8 +184,15 @@ local function resolveVisualGait(object, sm)
 	if sm:FreezesMovement() then
 		return "Idle"
 	end
+
+	-- Use assembly linear velocity instead of walkspeed
+	-- to have more realistic animations based on movement state.
+	
+	local sp = object.HRP.AssemblyLinearVelocity or Vector3.zero
+	sp = math.floor(sp.Magnitude)
+	
 	return Stats.GaitFromSpeed(
-		object.Humanoid.WalkSpeed,
+		sp, -- object.Humanoid.WalkSpeed,
 		object.info.WalkSpeed,
 		object.info.TrotSpeed,
 		object.info.RunSpeed
