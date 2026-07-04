@@ -137,13 +137,23 @@ Knit.OnStart():andThen(function()
 			end)
 	end
 
+	local parents : {Frame | TextButton} = muleDeer.Parent:GetChildren()
+	for i, v in pairs(parents) do
+		if v:IsA("TextButton") then
+			v.MouseButton1Click:Connect(function()
+				buttonClick(v)
+			end)
+		end
+	end
+
+	--[[
 	horise.MouseButton1Click:Connect(function()
 		buttonClick(horise)
 	end)
 
 	muleDeer.MouseButton1Click:Connect(function()
 		buttonClick(muleDeer)
-	end)
+	end)]]
 
 	-- Unlock the menu once loading completes.
 	LoadingController:OnLoaded(function()

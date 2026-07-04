@@ -54,58 +54,6 @@ return {
 				["Sprint"] = "rbxassetid://138964694481815",
 			}
 		},
-		["Female"] = {
-			["IdleSpeed"] = 0,
-			["WalkSpeed"] = 15,
-			["TrotSpeed"] = 28,
-			["RunSpeed"] = 40,
-			["SprintSpeed"] = 52,
-
-			["MaxStamina"] = 120,
-			["RunStaminaDrain"] = 8,
-			["SprintStaminaDrain"] = 25,
-
-			["TrotStaminaGain"] = 6,
-			["WalkStaminaGain"] = 12,
-			["IdleStaminaGain"] = 18,
-
-			["MaxHealthSpeedPenalty"] = 0.15,
-			["StaminaPenaltyThreshold"] = 0.5,
-			["HealthPenaltyThreshold"] = 0.5,
-
-			["Acceleration"] = 25,
-			["Deceleration"] = 10,
-
-			-- Turning Configuration (Agile feel)
-			["BaseTurnRate"] = 4.2,        -- Sharper turning circle when stopped
-			["TurnSpeedDecay"] = 0.07,     -- Maintains better turning at high speeds
-			["TurnBrakeSensitivity"] = 2.0, -- Doesn't lose as much speed on turns
-
-			["MaxTiltAngle"] = 20,
-			["TiltSensitivity"] = 0.8,
-			["TiltSpeed"] = 2,
-
-			-- Terrain Alignment
-			["TerrainAlignmentEnabled"] = true,
-			["TerrainAlignmentSpeed"] = 3,
-			["MaxTerrainPitch"] = 45,
-			["MaxTerrainRoll"] = 30,
-			["MaxTerrainAngle"] = 40, -- Hard cap on overall terrain tilt (deg)
-			["MaxClimbAngle"] = 35, -- Forward slope past which the creature cannot climb (deg)
-			["TerrainRaycastDistance"] = 25,
-
-			["AttackDamage"] = 10,
-			["StaminaAttackCost"] = 0.2,
-			["HealthAttackCost"] = 0.2,
-
-			["Animations"] = {
-				["Idle"] = "rbxassetid://123456791",
-				["Walk"] = "rbxassetid://123456792",
-				["Trot"] = "rbxassetid://123456793",
-				["Run"] = "rbxassetid://123456794",
-				["Sprint"] = "rbxassetid://123456795",
-			}
-		}
 	},
 
 	["MuleDeer"] = {
@@ -168,57 +116,67 @@ return {
 				["Sprint"] = "rbxassetid://112573917060283",
 			}
 		},
-		["Female"] = {
+	},
+
+	["Wolf"] = {
+		["Male"] = {
 			["IdleSpeed"] = 0,
-			["WalkSpeed"] = 15,
-			["TrotSpeed"] = 28,
-			["RunSpeed"] = 40,
-			["SprintSpeed"] = 52,
+			["WalkSpeed"] = 7,
+			["TrotSpeed"] = 16,
+			["RunSpeed"] = 42,
+			["SprintSpeed"] = 73,
 
-			["MaxStamina"] = 120,
-			["RunStaminaDrain"] = 8,
-			["SprintStaminaDrain"] = 25,
+			["MaxStamina"] = 100,
+			["RunStaminaDrain"] = 0.5,
+			["SprintStaminaDrain"] = 1,
 
-			["TrotStaminaGain"] = 6,
-			["WalkStaminaGain"] = 12,
-			["IdleStaminaGain"] = 18,
+			["TrotStaminaGain"] = 4,
+			["WalkStaminaGain"] = 7,
+			["IdleStaminaGain"] = 15,
 
+			-- When low on health (below threshold), max reduction in speed (penalty).
 			["MaxHealthSpeedPenalty"] = 0.15,
 			["StaminaPenaltyThreshold"] = 0.5,
 			["HealthPenaltyThreshold"] = 0.5,
 
-			["Acceleration"] = 25,
-			["Deceleration"] = 10,
+			["Acceleration"] = 60,
+			["Deceleration"] = 60,
 
-			-- Turning Configuration (Agile feel)
-			["BaseTurnRate"] = 4.2,        -- Sharper turning circle when stopped
-			["TurnSpeedDecay"] = 0.07,     -- Maintains better turning at high speeds
-			["TurnBrakeSensitivity"] = 2.0, -- Doesn't lose as much speed on turns
+			["BaseTurnRate"] = 10,        -- turning circle when stopped
+			["IdleTurnRate"] = 10,        -- Turning circle when idle (overrides BaseTurnRate)
+			["WalkTurnRate"] = 6,         -- Turning circle when walking
+			["TrotTurnRate"] = 6,         -- Turning circle when trotting
+			["RunTurnRate"] = 4,          -- Turning circle when running
+			["SprintTurnRate"] = 4,       -- Turning circle when sprinting (overrides BaseTurnRate)
+			["SwimmingTurnRate"] = 4,     -- Turning circle when swimming
 
-			["MaxTiltAngle"] = 20,
-			["TiltSensitivity"] = 0.8,
+			["TurnSpeedDecay"] = 0.04,      -- Speed reduces turn ability significantly
+			["TurnBrakeSensitivity"] = 2.6, -- Brakes hard when trying to turn sharp
+
+			["MaxTiltAngle"] = 30,
+			["TiltSensitivity"] = 0.5,
 			["TiltSpeed"] = 2,
 
 			-- Terrain Alignment
 			["TerrainAlignmentEnabled"] = true,
-			["TerrainAlignmentSpeed"] = 3,
+			["TerrainAlignmentSpeed"] = 6,
 			["MaxTerrainPitch"] = 45,
 			["MaxTerrainRoll"] = 30,
-			["MaxTerrainAngle"] = 40, -- Hard cap on overall terrain tilt (deg)
-			["MaxClimbAngle"] = 35, -- Forward slope past which the creature cannot climb (deg)
-			["TerrainRaycastDistance"] = 25,
+			["MaxTerrainAngle"] = 50, -- Hard cap on overall terrain tilt (deg)
+			["MaxClimbAngle"] = 45, -- Forward slope past which the creature cannot climb (deg)
+			["TerrainRaycastDistance"] = 35,
 
-			["AttackDamage"] = 10,
+			["AttackDamage"] = 30,
 			["StaminaAttackCost"] = 0.2,
 			["HealthAttackCost"] = 0.2,
 
 			["Animations"] = {
-				["Idle"] = "rbxassetid://123456791",
-				["Walk"] = "rbxassetid://123456792",
-				["Trot"] = "rbxassetid://123456793",
-				["Run"] = "rbxassetid://123456794",
-				["Sprint"] = "rbxassetid://123456795",
+				["Idle"] = "rbxassetid://78565435936342",
+				["Walk"] = "rbxassetid://133712899263986",
+				["Trot"] = "rbxassetid://83483811377818",
+				["Run"] = "rbxassetid://137519995520440",
+				["Sprint"] = "rbxassetid://128343239222496",
 			}
-		}
+		},
 	}
 }
