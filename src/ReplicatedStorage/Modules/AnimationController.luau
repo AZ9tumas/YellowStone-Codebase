@@ -23,20 +23,39 @@ local AnimationController = {}
 AnimationController.__index = AnimationController
 
 local DEFAULT_FADE_TIME = 0.2
+-- Locomotion crossfades get a slightly longer blend than actions: gait swaps
+-- happen mid-stride between full-body cycles, where a short fade reads as a
+-- snap (most visible on Sprint -> Trot).
+local GAIT_FADE_TIME = 0.3
 local GAIT_PRIORITY = Enum.AnimationPriority.Movement
 local ACTION_PRIORITY = Enum.AnimationPriority.Action
 
-export type AnimationControllerType = {
-	player: Player,
+export type AnimationController = {
+	player: Player?,
 	animator: Animator?,
 	animationsFolder: Folder?,
 	animationTracks: { [string]: AnimationTrack },
 	currentGait: string?,
 	activeActions: { [string]: boolean },
 	fadeTime: number,
+
+	Init: (self: AnimationController) -> (),
+	LoadAnimationsFromFolder: (self: AnimationController) -> (),
+	LoadAnimation: (self: AnimationController, name: string, animation: Animation) -> AnimationTrack?,
+	PlayGait: (self: AnimationController, name: string, fadeTime: number?, looped: boolean?) -> (),
+	PlayAction: (self: AnimationController, name: string, fadeTime: number?, looped: boolean?) -> (),
+	StopAction: (self: AnimationController, name: string, fadeTime: number?) -> (),
+	StopAllActions: (self: AnimationController, fadeTime: number?) -> (),
+	SetAnimationSpeed: (self: AnimationController, name: string, speed: number) -> (),
+	GetTrack: (self: AnimationController, name: string) -> AnimationTrack?,
+	HasAnimation: (self: AnimationController, name: string) -> boolean,
+	IsActionPlaying: (self: AnimationController, name: string) -> boolean,
+	RefreshAnimator: (self: AnimationController) -> (),
+	IsValid: (self: AnimationController) -> boolean,
+	Destroy: (self: AnimationController) -> (),
 }
 
-function AnimationController.new(player: Player)
+function AnimationController.new(player: Player): AnimationController
 	local self = setmetatable({}, AnimationController)
 
 	self.player = player
@@ -135,30 +154,55 @@ function AnimationController:_resolveTrack(name: string): AnimationTrack?
 end
 
 -- GAIT layer: crossfade to a new locomotion track. No-op if already playing it.
-function AnimationController:PlayGait(name: string, fadeTime: number?)
+-- `looped` defaults to true (gait cycles); turn-in-place one-shots pass false.
+--
+-- The crossfade is PHASE-SYNCED between looping cycles: the incoming track
+-- starts at the same normalized cycle time as the outgoing one, so the legs
+-- keep their stride phase through the blend instead of popping to a different
+-- foot position — that pop was the visible "snap" on gait changes, which no
+-- fade length alone can hide. The outgoing track is stopped only after the
+-- incoming one starts, so the animator weight-blends the overlap.
+function AnimationController:PlayGait(name: string, fadeTime: number?, looped: boolean?)
 	if self.currentGait == name then
 		return
 	end
 
-	local fade = fadeTime or self.fadeTime
+	local fade = fadeTime or GAIT_FADE_TIME
 
+	local prev: AnimationTrack? = nil
 	if self.currentGait then
-		local prev = self.animationTracks[self.currentGait]
-		if prev and prev.IsPlaying then
-			prev:Stop(fade)
-		end
+		prev = self.animationTracks[self.currentGait]
 	end
 
 	local track = self:_resolveTrack(name)
 	self.currentGait = name
 	if not track then
+		if prev and prev.IsPlaying then
+			prev:Stop(fade)
+		end
 		return
 	end
 
 	track.Priority = GAIT_PRIORITY
-	track.Looped = true
+	track.Looped = looped ~= false
 	if not track.IsPlaying then
 		track:Play(fade)
+		if track.Looped then
+			-- Match the outgoing cycle's phase. Length is 0 until the asset
+			-- loads; skip the sync then (the blend still happens, just unphased).
+			if track.Length > 0 and prev and prev.IsPlaying and prev.Looped and prev.Length > 0 then
+				local phase = (prev.TimePosition % prev.Length) / prev.Length
+				track.TimePosition = phase * track.Length
+			end
+		elseif track.Length > 0 and track.TimePosition >= track.Length then
+			-- Replayed one-shot: a finished track parks at its end; without this
+			-- it would re-finish instantly instead of playing again.
+			track.TimePosition = 0
+		end
+	end
+
+	if prev and prev.IsPlaying then
+		prev:Stop(fade)
 	end
 end
 

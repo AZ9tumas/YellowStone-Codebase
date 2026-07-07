@@ -5,17 +5,20 @@
 	pieces of state and exposes the operations the movement loop needs.
 
 	  gait   : string  -- current locomotion stage. SET each frame from the
-	                       server-driven WalkSpeed (MovementController +
-	                       Stats.GaitFromSpeed). This is the VISUAL state and
-	                       drives the animation; it is NOT the value sent to the
-	                       server (the controller sends the input intent).
+	                       creature's measured velocity (MovementController +
+	                       Stats.ResolveGaitFromVelocity), or a turn-in-place
+	                       state (Turn90*/Turn180*) while one is running. This is
+	                       the VISUAL state and drives the animation; it is NOT
+	                       the value sent to the server (the controller sends the
+	                       input intent).
 	  action : string? -- current action (Eat/Drink/Fight/Rest...), or nil
 
 	Why gait is speed-derived, not input-derived:
-	  * The server owns WalkSpeed and ramps it toward the player's input intent.
-	    Reading the visual gait from the (already replicated) WalkSpeed makes the
-	    animation climb the ladder while accelerating AND descend it while
-	    coasting to a stop, with zero extra network traffic.
+	  * The server owns WalkSpeed and ramps it toward the player's input intent;
+	    the measured velocity follows it (minus client-side turn braking).
+	    Reading the visual gait from the velocity makes the animation climb the
+	    ladder while accelerating AND descend it while coasting to a stop, with
+	    zero extra network traffic.
 	  * There is one gait store, so the old two-store desync is impossible.
 
 	Restrictions live with the action that owns them (blockedGaits / guard in
@@ -47,7 +50,29 @@ export type Context = {
 	[any]: any,
 }
 
-function StateMachine.new()
+export type StateMachine = {
+	gait: string,
+	action: string?,
+	GaitChanged: Signal.Signal<string, string>,
+	ActionChanged: Signal.Signal<string?, string?>,
+
+	SetGait: (self: StateMachine, name: string) -> (),
+	RequestAction: (self: StateMachine, name: string, ctx: Context) -> (boolean, string?),
+	ClearAction: (self: StateMachine) -> (),
+	GetRestDepth: (self: StateMachine) -> number,
+	IsResting: (self: StateMachine) -> boolean,
+	DeepenRest: (self: StateMachine) -> (),
+	ShallowRest: (self: StateMachine) -> (),
+	AbortActionsIfNeeded: (self: StateMachine, ctx: Context) -> (),
+	GetGait: (self: StateMachine) -> string,
+	GetAction: (self: StateMachine) -> string?,
+	HasAction: (self: StateMachine) -> boolean,
+	FreezesMovement: (self: StateMachine) -> boolean,
+	EffectiveState: (self: StateMachine) -> string,
+	Destroy: (self: StateMachine) -> (),
+}
+
+function StateMachine.new(): StateMachine
 	local self = setmetatable({}, StateMachine)
 
 	self.gait = "Idle"
@@ -61,10 +86,15 @@ function StateMachine.new()
 	return self
 end
 
--- Gait is SET from speed by the controller (Stats.GaitFromSpeed), not resolved
--- from input here. Fires GaitChanged on a real change; a no-op otherwise.
+-- Gait is SET from speed by the controller (Stats.ResolveGaitFromVelocity), not
+-- resolved from input here; the controller may also set a turn-in-place state
+-- (category Turn), which shares the gait slot because both drive the single
+-- locomotion animation track. Fires GaitChanged on a real change.
 function StateMachine:SetGait(name: string)
-	assert(MovementStates.IsGait(name), `StateMachine: "{tostring(name)}" is not a gait`)
+	assert(
+		MovementStates.IsGait(name) or MovementStates.IsTurn(name),
+		`StateMachine: "{tostring(name)}" is not a gait or turn state`
+	)
 	if self.gait == name then
 		return
 	end

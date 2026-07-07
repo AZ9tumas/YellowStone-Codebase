@@ -19,11 +19,20 @@
 
 	State / animation:
 	  * The VISUAL gait (Idle/Walk/Trot/Run/Sprint) is read every frame from the
-	    server-driven, replicated WalkSpeed via Stats.GaitFromSpeed — pure speed
-	    bands, no buffer. It drives the ANIMATION, so it climbs the ladder while
-	    accelerating and descends it while coasting to a stop (the walk/run frames
-	    you see on release) at zero network cost.
+	    creature's MEASURED horizontal velocity — smoothed, then banded with
+	    hysteresis (Stats.ResolveGaitFromVelocity). It drives the ANIMATION, so
+	    it climbs the ladder while accelerating and descends it while coasting
+	    to a stop, and it reflects client-side speed loss (turn braking) the
+	    server-driven WalkSpeed never sees. The smoothing + hysteresis + the
+	    horizontal-only measurement are what stop slope climbs / reorientation
+	    jitter from flapping the gait (Idle->Walk, Walk->Trot) frame to frame.
 	  * The INTENT gait (from input) is the only locomotion value networked.
+	  * TURN-IN-PLACE (The-Isle-style): while near-stationary, a large gap
+	    between the input direction and the current facing plays a dedicated
+	    Turn90/Turn180 left/right state on the gait layer. The root rotation is
+	    paced by the animation's remaining time (feet stay planted in sync) and
+	    the turn brake holds the speed at 0 until the gap closes; the per-
+	    creature TurnBrakeCurve decides how hard moving turns bleed speed.
 	  * Actions (Eat/Drink/Fight/Rest) are requested via RequestAction; a freezing
 	    action (Eat/Drink/Rest) forces intent + visual gait to Idle and stops
 	    driving forward velocity. The StateMachine enforces all restrictions (e.g.
@@ -42,12 +51,57 @@ local Trove = require(ReplicatedStorage.Packages.Trove)
 local Stats = require(ReplicatedStorage.Modules.Stats)
 local Common = require(ReplicatedStorage.Modules.Common)
 local StateMachine = require(ReplicatedStorage.Modules.Movement.StateMachine)
+local MovementStates = require(ReplicatedStorage.Modules.Movement.MovementStates)
 local AnimationController = require(ReplicatedStorage.Modules.AnimationController)
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
 local MovementController = Knit.CreateController({ Name = "MovementController" })
+
+-- types
+export type obj = {
+	Character: Model,
+	Humanoid: Humanoid,
+	HRP: BasePart,
+	info: Common.CreatureInfo,
+	BodyMovers: {
+		LinearVelocity: LinearVelocity?,
+		AlignOrientation: AlignOrientation?,
+	},
+	StateMachine: StateMachine.StateMachine,
+	AnimationController: AnimationController.AnimationController,
+	trove: Trove.Trove,
+
+	Facing: Vector3,
+	LastFacing: Vector3,
+	Tilt: number,
+	RestPitch: number,
+	TurnBrake: number,
+	CFrame: CFrame,
+	TerrainNormal: Vector3,
+	Grounded: boolean,
+	ForwardSlope: number,
+
+	walkStyle: string,
+	runStyle: string,
+	lastIntent: string?,
+	lastMoveInput: boolean,
+
+	SmoothedSpeed: number,
+	VisualGait: string,
+	TurnInPlace: string?,
+	TurnInPlacePlaying: boolean,
+	TurnInPlaceAge: number,
+	TurnInPlaceRetryAt: number,
+
+	TurnAngleDeg: number?,
+	TurnRateFraction: number?,
+	TurnRateRPS: number?,
+	MaxTurnRate: number?,
+	LastCamLook: Vector3?,
+	CamYawRate: number?,
+}
 
 -- Placeholder resting pose until Rest1/Rest2 animations exist: a gentle nose-
 -- down lean that deepens per rest level, applied through the normal orientation
@@ -60,6 +114,20 @@ local REST_PITCH_SPEED = 6
 -- snappier decelerate-into / accelerate-out-of a turn; lower = floatier. Purely
 -- a client-side feel knob.
 local TURN_BRAKE_RESPONSE = 10
+
+-- Exponential smoothing rate (per second) for the measured horizontal speed
+-- that feeds the visual gait. High enough to track real acceleration, low
+-- enough to swallow single-frame physics jitter (slope climbs, reorientation).
+local SPEED_SMOOTH_RESPONSE = 8
+
+-- Turn-in-place safety rails: cap the animation-paced rotation rate (rad/s);
+-- abort a turn whose animation never becomes usable (failed/blocked asset load
+-- keeps the track at Length 0) so the creature can never get stuck waiting on
+-- a track; and back off re-triggering after such an abort so a broken asset
+-- degrades to plain fast turning instead of a freeze/retry flicker loop.
+local TURN_IN_PLACE_MAX_RATE = math.rad(360)
+local TURN_IN_PLACE_START_TIMEOUT = 0.5
+local TURN_IN_PLACE_RETRY_COOLDOWN = 3
 
 -- ===== Ground probe ==========================================================
 -- Four downward rays in a facing-aligned square around the HRP; averaged /
@@ -155,13 +223,40 @@ end
 local function buildContext(self, object)
 	local moveVector = self.ControlModule:GetMoveVector()
 	local vel = object.HRP.AssemblyLinearVelocity
+	local hasMoveInput = moveVector.Magnitude > 0
+
+	-- Desired heading (camera-relative input, flattened) and its gap from the
+	-- current facing. With no input the target IS the facing => zero gap, so
+	-- the brake always recovers to 1 when the sticks are released.
+	local targetDir = object.Facing
+	if hasMoveInput then
+		local d = camera.CFrame:VectorToWorldSpace(moveVector)
+		d = Vector3.new(d.X, 0, d.Z)
+		if d.Magnitude > 0.001 then
+			targetDir = d.Unit
+		end
+	end
+	local dot = math.clamp(object.Facing:Dot(targetDir), -1, 1)
+	local angleGap = math.acos(dot)
+	-- +1 = target is to the LEFT of the facing (counter-clockwise from above).
+	local turnSign = math.sign(object.Facing:Cross(targetDir).Y)
+	if turnSign == 0 then
+		turnSign = 1
+	end
+
 	return {
 		moveVector = moveVector,
-		hasMoveInput = moveVector.Magnitude > 0,
+		hasMoveInput = hasMoveInput,
 		shiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift),
 		walkStyle = object.walkStyle,
 		runStyle = object.runStyle,
+		-- Horizontal only: climbing a slope adds vertical velocity that must not
+		-- count toward the locomotion speed (it pushed the 3D magnitude into the
+		-- next gait band and caused the Walk->Trot flicker on hills).
 		currentSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude,
+		targetDir = targetDir,
+		angleGap = angleGap,
+		turnSign = turnSign,
 	}
 end
 
@@ -176,30 +271,113 @@ local function resolveIntent(sm, ctx)
 	return if ctx.shiftHeld then ctx.runStyle else ctx.walkStyle
 end
 
--- VISUAL gait band from the server-driven WalkSpeed (the animation source).
--- WalkSpeed replicates here for free, so reading the band each frame makes the
--- animation climb the ladder while accelerating AND descend it while coasting
--- to a stop. A freezing action shows Idle.
-local function resolveVisualGait(object, sm)
-	if sm:FreezesMovement() then
-		return "Idle"
-	end
+-- VISUAL gait band from the creature's measured horizontal velocity, smoothed
+-- (exponential, framerate-independent) and resolved with hysteresis so slope
+-- climbs / reorientation jitter can't flap the animation between bands. The
+-- smoothed speed lives on the object; `object.VisualGait` is always one of the
+-- five locomotion gaits (turn-in-place overrides happen at the SetGait site,
+-- never here, so the hysteresis always has a valid previous band to work from).
+local function resolveVisualGait(object, sm, ctx, dt)
+	-- Cap the measured speed at the server-driven WalkSpeed: locomotion can
+	-- never legitimately exceed the server's authority, so anything above it is
+	-- a physics artifact (measured ~2x WalkSpeed while the AlignOrientation
+	-- whips the body toward a new heading), which would spike the gait a band
+	-- too high. Every real dynamic (turn braking, collisions, deceleration)
+	-- happens BELOW WalkSpeed and passes through untouched.
+	local raw = if sm:FreezesMovement() then 0 else math.min(ctx.currentSpeed, object.Humanoid.WalkSpeed)
+	object.SmoothedSpeed += (raw - object.SmoothedSpeed) * (1 - math.exp(-SPEED_SMOOTH_RESPONSE * dt))
 
-	-- Use assembly linear velocity instead of walkspeed
-	-- to have more realistic animations based on movement state.
-	
-	local sp = object.HRP.AssemblyLinearVelocity or Vector3.zero
-	sp = math.floor(sp.Magnitude)
-	
-	return Stats.GaitFromSpeed(
-		sp, -- object.Humanoid.WalkSpeed,
-		object.info.WalkSpeed,
-		object.info.TrotSpeed,
-		object.info.RunSpeed
-	)
+	object.VisualGait = if sm:FreezesMovement()
+		then "Idle"
+		else Stats.ResolveGaitFromVelocity(
+			object.SmoothedSpeed,
+			object.VisualGait,
+			object.info.WalkSpeed,
+			object.info.TrotSpeed,
+			object.info.RunSpeed
+		)
+	return object.VisualGait
 end
 
-local function updateState(self, object, ctx)
+-- Turn-in-place resolution (The-Isle-style). Returns the turn state to show on
+-- the gait layer, or nil for normal speed-derived gait. A turn STARTS when the
+-- creature is grounded, near-stationary and the demanded heading is at least
+-- MinAngle off the facing; it ENDS when the gap closes below ExitAngle, input
+-- is released, a freezing action starts, or the one-shot track finishes. The
+-- chosen animation (90 vs 180, left vs right) is locked for the whole turn so
+-- camera wiggle can't flicker between tracks mid-turn.
+local function resolveTurnInPlace(object, ctx, dt): string?
+	local sm = object.StateMachine
+	local cfg = object.info.TurnInPlace
+	if not cfg then
+		return nil -- creature has no turn-in-place animations
+	end
+
+	local active = object.TurnInPlace
+	if active then
+		object.TurnInPlaceAge += dt
+		local track = object.AnimationController:GetTrack(active)
+		-- Healthy = playing with real content. A blocked/failed asset can report
+		-- IsPlaying with Length 0 (no keyframes), which must count as stalled,
+		-- not as running — never wait on such a track.
+		local healthy = track ~= nil and track.IsPlaying and track.Length > 0
+		if healthy then
+			object.TurnInPlacePlaying = true
+		end
+		local finished = object.TurnInPlacePlaying and not (track and track.IsPlaying)
+		local stalled = not healthy and object.TurnInPlaceAge > TURN_IN_PLACE_START_TIMEOUT
+
+		if stalled then
+			-- Track never became usable: back off so the retry loop can't freeze
+			-- the creature; normal (non-animated) turning covers the gap.
+			object.TurnInPlaceRetryAt = os.clock() + TURN_IN_PLACE_RETRY_COOLDOWN
+			warn(`MovementController: turn-in-place track "{active}" never became playable (asset failed to load?)`)
+		end
+
+		if not ctx.hasMoveInput or sm:FreezesMovement() or ctx.angleGap < math.rad(cfg.ExitAngle) or finished or stalled then
+			object.TurnInPlace = nil
+			return nil
+		end
+		return active
+	end
+
+	if os.clock() < object.TurnInPlaceRetryAt then
+		return nil
+	end
+	if not ctx.hasMoveInput or sm:IsResting() or sm:FreezesMovement() or not object.Grounded then
+		return nil
+	end
+	if ctx.currentSpeed > cfg.MaxSpeed or ctx.angleGap < math.rad(cfg.MinAngle) then
+		return nil
+	end
+
+	local arc = if math.deg(ctx.angleGap) >= cfg.Angle180 then "Turn180" else "Turn90"
+	local side = if ctx.turnSign > 0 then "Left" else "Right"
+	local state = arc .. side
+	if not object.AnimationController:HasAnimation(state) then
+		-- TurnInPlace config promises these tracks; a missing one is a setup bug.
+		warn(`MovementController: TurnInPlace is configured but animation "{state}" is missing`)
+		return nil
+	end
+
+	-- Only engage with a track that actually has content. All tracks are
+	-- preloaded at spawn, so Length == 0 here means the asset hasn't finished
+	-- loading (or failed/blocked) — engaging now would blank the gait layer
+	-- with an empty one-shot. Retry again shortly; normal turning covers the
+	-- gap meanwhile, so this degrades invisibly.
+	local track = object.AnimationController:GetTrack(state)
+	if not track or track.Length <= 0 then
+		object.TurnInPlaceRetryAt = os.clock() + 1
+		return nil
+	end
+
+	object.TurnInPlace = state
+	object.TurnInPlaceAge = 0
+	object.TurnInPlacePlaying = false
+	return state
+end
+
+local function updateState(self, object, ctx, dt)
 	local sm = object.StateMachine
 
 	-- Resting consumes movement input as a "stand up one posture" command rather
@@ -214,12 +392,17 @@ local function updateState(self, object, ctx)
 	end
 	object.lastMoveInput = ctx.hasMoveInput
 
-	-- Animation: the visual gait tracks the actual (server-driven) speed. One
-	-- call, the animation id follows from the gait name (StateMachine.GaitChanged
-	-- -> AnimationController:PlayGait).
-	sm:SetGait(resolveVisualGait(object, sm))
+	-- Animation: a running turn-in-place owns the gait layer; otherwise the
+	-- visual gait tracks the measured speed. One call, the animation follows
+	-- from the state name (StateMachine.GaitChanged -> PlayGait).
+	local visualGait = resolveVisualGait(object, sm, ctx, dt)
+	local turnState = resolveTurnInPlace(object, ctx, dt)
+	sm:SetGait(turnState or visualGait)
 
-	-- Networking: report the input intent, only on a real change.
+	-- Networking: report the input intent, only on a real change. Turn states
+	-- are never reported — while turning in place the intent stays the input
+	-- gait, so the server pre-ramps WalkSpeed and the creature accelerates out
+	-- of the turn the moment the brake releases.
 	local intent = resolveIntent(sm, ctx)
 	if intent ~= object.lastIntent then
 		object.lastIntent = intent
@@ -229,18 +412,13 @@ end
 
 -- Turning + velocity. Turning is free (capped per gait); the speed penalty is
 -- paid from the rate of orientation change. All client-side.
-local function updateMovement(self, object, ctx, dt)
+local function updateMovement(self, object: obj, ctx, dt)
 	local sm = object.StateMachine
 
-	-- Target direction (camera-relative input, flattened) or hold facing.
-	local targetDir = object.Facing
-	if ctx.hasMoveInput then
-		local d = camera.CFrame:VectorToWorldSpace(ctx.moveVector)
-		d = Vector3.new(d.X, 0, d.Z)
-		if d.Magnitude > 0.001 then
-			targetDir = d.Unit
-		end
-	end
+	-- Desired heading gap computed once per frame in buildContext (shared with
+	-- the turn-in-place resolution in updateState).
+	local angleDiff = ctx.angleGap
+	object.TurnAngleDeg = math.deg(angleDiff) -- stored for debug display
 
 	-- Turning is FREE: always turn toward the target at the max rate the current
 	-- gait allows (the per-state TurnRate; BaseTurnRate is the guaranteed fallback
@@ -249,31 +427,30 @@ local function updateMovement(self, object, ctx, dt)
 	local maxTurnRate = object.info[gait .. "TurnRate"] or object.info.BaseTurnRate
 
 	local currentDir = object.Facing
-	local dot = math.clamp(currentDir:Dot(targetDir), -1, 1)
-	local angleDiff = math.acos(dot)
-	object.TurnAngleDeg = math.deg(angleDiff) -- stored for debug display
 
 	-- While resting, controls are fully disabled: no turning here, and the
 	-- velocity is zeroed below via FreezesMovement(). Movement input is consumed
 	-- only to pop rest levels (see updateState).
 	local appliedTurn = 0
-	if ctx.hasMoveInput and angleDiff > 0.001 and not sm:IsResting() then
+	if object.TurnInPlace then
+		-- Animation-paced rotation: close the remaining gap over the remaining
+		-- track time, so the root finishes rotating exactly when the one-shot
+		-- ends and the planted feet stay in sync with the body (Isle-style).
+		-- Until the track actually starts (<= 1 frame, bounded by the stall
+		-- timeout in resolveTurnInPlace) the creature holds still.
+		local track = object.AnimationController:GetTrack(object.TurnInPlace)
+		if track and track.IsPlaying and track.Length > 0 and angleDiff > 0.001 then
+			local remaining = math.max(track.Length - track.TimePosition, 1 / 30)
+			local rate = math.min(angleDiff / remaining, TURN_IN_PLACE_MAX_RATE)
+			appliedTurn = math.min(angleDiff, rate * dt)
+			object.Facing = (CFrame.Angles(0, appliedTurn * ctx.turnSign, 0) * currentDir).Unit
+		end
+	elseif ctx.hasMoveInput and angleDiff > 0.001 and not sm:IsResting() then
 		local maxStep = maxTurnRate * dt -- the gait's max turn-angle this frame
 		appliedTurn = math.min(angleDiff, maxStep)
-		local turnSign = math.sign(currentDir:Cross(targetDir).Y)
-		if turnSign == 0 then
-			turnSign = 1
-		end
-		object.Facing = (CFrame.Angles(0, appliedTurn * turnSign, 0) * currentDir).Unit
+		object.Facing = (CFrame.Angles(0, appliedTurn * ctx.turnSign, 0) * currentDir).Unit
 	end
 
-	-- Speed is INVERSELY proportional to the rate of orientation change: the
-	-- faster we reorient (relative to the gait's max turn rate) the more speed we
-	-- shed, so a sharp turn bleeds a lot and a straight line none. Eased so we
-	-- decelerate into the turn and accelerate back out, and it recovers once the
-	-- heading stabilises. This stays 100% client-side — the server keeps ramping
-	-- WalkSpeed toward the gait intent and never learns about the turn, so the
-	-- networking is untouched.
 	local turnRateNow = appliedTurn / dt
 	-- Raw turn rate as a fraction of the gait's max (debug read-out). Deliberately
 	-- NOT clamped so a value > 1 would reveal the per-frame turn cap being blown.
@@ -292,11 +469,19 @@ local function updateMovement(self, object, ctx, dt)
 		object.LastCamLook = camLook
 	end
 
-	-- Speed penalty is based on the DEMANDED turn ANGLE (framerate-independent),
-	-- not the per-frame rate, then eased for a smooth decelerate-into / accelerate-
-	-- out of the turn. 100% client-side; the server never learns about the turn.
-	local targetBrake = Stats.GetTurnSpeedFactor(angleDiff, object.info.TurnBrakeSensitivity)
-	object.TurnBrake = object.TurnBrake + (targetBrake - object.TurnBrake) * math.min(dt * TURN_BRAKE_RESPONSE, 1)
+	-- Speed penalty from the DEMANDED turn ANGLE (framerate-independent), read
+	-- off the creature's own TurnBrakeCurve, then eased (exponential, framerate-
+	-- independent) for a smooth decelerate-into / accelerate-out of the turn.
+	-- A running turn-in-place targets 0 outright: the creature plants until the
+	-- turn resolves, then the same easing accelerates it out. 100% client-side;
+	-- the server never learns about the turn.
+	local targetBrake
+	if object.TurnInPlace then
+		targetBrake = 0
+	else
+		targetBrake = Stats.EvaluateTurnBrakeCurve(angleDiff, object.info.TurnBrakeCurve)
+	end
+	object.TurnBrake += (targetBrake - object.TurnBrake) * (1 - math.exp(-TURN_BRAKE_RESPONSE * dt))
 
 	-- Velocity: always facing.Unit * (WalkSpeed * TurnBrake). Magnitude is owned
 	-- by the server (WalkSpeed); we only shave it locally for turns. We do NOT
@@ -330,14 +515,20 @@ local function updateOrientation(self, object, dt)
 	local turnRateNow = math.asin(math.clamp(cross.Y, -1, 1)) / dt
 	object.LastFacing = object.Facing
 
-	local targetTiltRad = math.clamp(turnRateNow * info.TiltSensitivity, -math.rad(info.MaxTiltAngle), math.rad(info.MaxTiltAngle))
-	object.Tilt = object.Tilt + (targetTiltRad - object.Tilt) * math.min(dt * info.TiltSpeed, 1)
+	-- No banking while turning in place — the creature is stationary, pivoting
+	-- on its feet; a lean only makes sense with forward momentum.
+	local targetTiltRad = if object.TurnInPlace
+		then 0
+		else math.clamp(turnRateNow * info.TiltSensitivity, -math.rad(info.MaxTiltAngle), math.rad(info.MaxTiltAngle))
+	-- All orientation easing below uses the exponential form 1 - exp(-k*dt):
+	-- unlike min(dt*k, 1) it converges identically at any framerate.
+	object.Tilt += (targetTiltRad - object.Tilt) * (1 - math.exp(-info.TiltSpeed * dt))
 
 	-- Placeholder resting lean: ease toward the pose for the current rest depth
 	-- (0 when standing). Cosmetic only — remove with REST_PITCH when animated.
 	local restDepth = object.StateMachine:GetRestDepth()
 	local targetRestPitch = if restDepth > 0 then REST_PITCH[restDepth] else 0
-	object.RestPitch = object.RestPitch + (targetRestPitch - object.RestPitch) * math.min(dt * REST_PITCH_SPEED, 1)
+	object.RestPitch += (targetRestPitch - object.RestPitch) * (1 - math.exp(-REST_PITCH_SPEED * dt))
 
 	local targetNormal = Vector3.yAxis
 	if info.TerrainAlignmentEnabled then
@@ -357,19 +548,29 @@ local function updateOrientation(self, object, dt)
 		end
 	end
 
-	local alpha = math.clamp(dt * info.TerrainAlignmentSpeed, 0, 1)
-	object.TerrainNormal = object.TerrainNormal:Lerp(targetNormal, alpha)
+	-- Ease toward the target normal, then RE-NORMALIZE: lerping two unit vectors
+	-- yields a shorter one, and feeding a non-unit up-vector into fromMatrix
+	-- below would shear the orientation the AlignOrientation chases.
+	local alpha = 1 - math.exp(-info.TerrainAlignmentSpeed * dt)
+	local blended = object.TerrainNormal:Lerp(targetNormal, alpha)
+	object.TerrainNormal = if blended.Magnitude > 1e-4 then blended.Unit else targetNormal
 
+	-- Orthonormal basis: rightVec = facing x up is perpendicular to the (unit)
+	-- normal by construction, so after normalizing it, fromMatrix(_, right, up)
+	-- produces a clean rotation with the facing projected onto the ground plane.
 	local rightVec = object.Facing:Cross(object.TerrainNormal)
-	if rightVec.Magnitude < 0.001 then
-		rightVec = Vector3.xAxis
-	end
+	rightVec = if rightVec.Magnitude > 0.001 then rightVec.Unit else Vector3.xAxis
 
 	local targetCF = CFrame.fromMatrix(Vector3.zero, rightVec, object.TerrainNormal)
 	object.CFrame = targetCF * CFrame.Angles(object.RestPitch, 0, object.Tilt)
 	ao.CFrame = object.CFrame
 end
 
+-- Scale the playing gait cycle to the measured speed (feet track the ground).
+-- Uses the SMOOTHED speed so the playback rate doesn't shiver with physics
+-- jitter. Turn-in-place states have no "<state>Speed" config and are skipped —
+-- their one-shots always play at authored speed (rotation is paced to them,
+-- not the other way around).
 local function updateAnimationSpeed(object)
 	local gait = object.StateMachine:GetGait()
 	if gait == "Idle" then
@@ -378,9 +579,7 @@ local function updateAnimationSpeed(object)
 	end
 	local targetSpeed = object.info[gait .. "Speed"]
 	if targetSpeed and targetSpeed > 0 then
-		local vel = object.HRP.AssemblyLinearVelocity
-		local currentSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
-		local ratio = math.clamp(currentSpeed / targetSpeed, 0.5, 1.2)
+		local ratio = math.clamp(object.SmoothedSpeed / targetSpeed, 0.5, 1.2)
 		object.AnimationController:SetAnimationSpeed(gait, ratio)
 	end
 end
@@ -391,7 +590,7 @@ local function update(self, object, dt)
 		return
 	end
 	local ctx = buildContext(self, object)
-	updateState(self, object, ctx)
+	updateState(self, object, ctx, dt)
 	updateMovement(self, object, ctx, dt)
 	updateOrientation(self, object, dt)
 	updateAnimationSpeed(object)
@@ -426,7 +625,7 @@ function MovementController:_buildObject()
 	local sm = trove:Add(StateMachine.new())
 	local animController = trove:Add(AnimationController.new(player))
 
-	local object = {
+	local object: obj = {
 		Character = char,
 		Humanoid = humanoid,
 		HRP = hrp,
@@ -453,11 +652,20 @@ function MovementController:_buildObject()
 		runStyle = "Sprint",
 		lastIntent = nil,
 		lastMoveInput = false,
+
+		SmoothedSpeed = 0,
+		VisualGait = "Idle",
+		TurnInPlace = nil,
+		TurnInPlacePlaying = false,
+		TurnInPlaceAge = 0,
+		TurnInPlaceRetryAt = 0,
 	}
 
-	-- Animations follow StateMachine signals (single source of truth).
+	-- Animations follow StateMachine signals (single source of truth). Turn
+	-- states declare looped = false (one-shots); gaits loop.
 	trove:Connect(sm.GaitChanged, function(newGait)
-		animController:PlayGait(newGait)
+		local def = MovementStates.Get(newGait)
+		animController:PlayGait(newGait, nil, def.looped ~= false)
 	end)
 	trove:Connect(sm.ActionChanged, function(newAction, oldAction)
 		-- Stop the outgoing track first so action -> action swaps (e.g.

@@ -25,8 +25,17 @@ return {
 
 			-- Turning Configuration
 			["BaseTurnRate"] = 4.5,
-			["TurnSpeedDecay"] = 0.05, --(imo, lower is better)
-			["TurnBrakeSensitivity"] = 3.0,
+
+			-- Demanded-turn-angle (deg) -> speed multiplier, linearly interpolated
+			-- (see MovementMath.EvaluateTurnBrakeCurve). A heavy horse always keeps
+			-- some momentum through a turn, so the curve never reaches 0.
+			["TurnBrakeCurve"] = {
+				{ Angle = 0,   Brake = 1 },
+				{ Angle = 5,   Brake = 1 },    -- micro-corrections are free
+				{ Angle = 40,  Brake = 0.45 },
+				{ Angle = 75,  Brake = 0.25 },
+				{ Angle = 180, Brake = 0.25 },
+			},
 
 			-- Tilt
 			["MaxTiltAngle"] = 20,
@@ -88,8 +97,16 @@ return {
 			["SprintTurnRate"] = 4,       -- Turning circle when sprinting (overrides BaseTurnRate)
 			["SwimmingTurnRate"] = 4,     -- Turning circle when swimming
 
-			["TurnSpeedDecay"] = 0.04,      -- Speed reduces turn ability significantly
-			["TurnBrakeSensitivity"] = 2.6, -- Brakes hard when trying to turn sharp
+			-- Demanded-turn-angle (deg) -> speed multiplier, linearly interpolated
+			-- (see MovementMath.EvaluateTurnBrakeCurve). An agile deer sheds speed
+			-- on sharp turns but never fully stops.
+			["TurnBrakeCurve"] = {
+				{ Angle = 0,   Brake = 1 },
+				{ Angle = 5,   Brake = 1 },    -- micro-corrections are free
+				{ Angle = 45,  Brake = 0.42 },
+				{ Angle = 75,  Brake = 0.28 },
+				{ Angle = 180, Brake = 0.28 },
+			},
 
 			["MaxTiltAngle"] = 30,
 			["TiltSensitivity"] = 0.5,
@@ -150,8 +167,26 @@ return {
 			["SprintTurnRate"] = 4,       -- Turning circle when sprinting (overrides BaseTurnRate)
 			["SwimmingTurnRate"] = 4,     -- Turning circle when swimming
 
-			["TurnSpeedDecay"] = 0.04,      -- Speed reduces turn ability significantly
-			["TurnBrakeSensitivity"] = 2.6, -- Brakes hard when trying to turn sharp
+			-- Demanded-turn-angle (deg) -> speed multiplier, linearly interpolated
+			-- (see MovementMath.EvaluateTurnBrakeCurve). The wolf plants for sharp
+			-- turns: at 120°+ the brake reaches 0, so a demanded reversal stops it
+			-- completely and resolves as a turn-in-place (The-Isle-style).
+			["TurnBrakeCurve"] = {
+				{ Angle = 0,   Brake = 1 },
+				{ Angle = 10,  Brake = 1 },    -- micro-corrections are free
+				{ Angle = 45,  Brake = 0.6 },
+				{ Angle = 90,  Brake = 0.2 },
+				{ Angle = 120, Brake = 0 },
+				{ Angle = 180, Brake = 0 },
+			},
+
+			-- Turn-in-place (requires the Turn90*/Turn180* animations below).
+			["TurnInPlace"] = {
+				["MaxSpeed"] = 2.5, -- studs/s: at/below this actual speed the turn happens in place
+				["MinAngle"] = 55,  -- deg input/facing gap that starts a turn-in-place
+				["Angle180"] = 120, -- deg gap at/above which the 180 animation is used
+				["ExitAngle"] = 12, -- deg gap below which the turn is considered finished
+			},
 
 			["MaxTiltAngle"] = 30,
 			["TiltSensitivity"] = 0.5,
@@ -176,6 +211,12 @@ return {
 				["Trot"] = "rbxassetid://83483811377818",
 				["Run"] = "rbxassetid://137519995520440",
 				["Sprint"] = "rbxassetid://128343239222496",
+
+				-- Turn-in-place one-shots (names match MovementStates turn states).
+				["Turn90Left"] = "rbxassetid://140093023419940",
+				["Turn90Right"] = "rbxassetid://76931076997938",
+				["Turn180Left"] = "rbxassetid://101609312038608",
+				["Turn180Right"] = "rbxassetid://133302248316884",
 			}
 		},
 	}

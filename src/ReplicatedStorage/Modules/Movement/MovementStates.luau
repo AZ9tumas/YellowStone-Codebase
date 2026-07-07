@@ -6,10 +6,16 @@
 	orthogonal layers and this table describes both:
 
 	  * GAIT   — locomotion stages (Idle/Walk/Trot/Run/Sprint). The VISUAL gait
-	             is *derived* every frame from the server-driven WalkSpeed (see
-	             Stats.GaitFromSpeed) — pure speed bands. There is deliberately
-	             NO transition graph: a gait is a function of the current speed,
-	             not of the previous gait, so it can never desync.
+	             is *derived* every frame from the creature's measured velocity
+	             (see Stats.ResolveGaitFromVelocity) — speed bands with
+	             hysteresis. There is deliberately NO transition graph: a gait
+	             is a function of the current speed, so it can never desync.
+
+	  * TURN   — turn-in-place one-shots (Turn90/Turn180, left/right). They live
+	             on the gait layer (exactly one locomotion track at a time) but
+	             are triggered by the input/facing angle gap while standing, not
+	             by speed, so they get their own category. Non-looping; never
+	             sent to the server (the intent stays a locomotion gait).
 
 	  * ACTION — discrete, guarded, interruptible activities (Eat/Drink/Fight,
 	             and anything added later). Only one action runs at a time. An
@@ -27,13 +33,15 @@
 
 local MovementStates = {}
 
-export type Category = "Gait" | "Action"
+export type Category = "Gait" | "Turn" | "Action"
 
 export type StateDefinition = {
 	category: Category,
 	animation: string,
 	-- Gait-only:
 	tier: number?, -- ordering, slow (0) -> fast; used by gait resolution
+	-- Turn-only:
+	looped: boolean?, -- turn one-shots set false; nil means looping (all gaits)
 	-- Action-only:
 	freezesMovement: boolean?, -- locomotion is suppressed while this action runs
 	abortOnMove: boolean?, -- movement input cancels the action
@@ -43,6 +51,7 @@ export type StateDefinition = {
 
 MovementStates.Category = {
 	Gait = "Gait" :: Category,
+	Turn = "Turn" :: Category,
 	Action = "Action" :: Category,
 }
 
@@ -56,6 +65,16 @@ MovementStates.Definitions = {
 	Trot = { category = "Gait", tier = 2, animation = "Trot" },
 	Run = { category = "Gait", tier = 3, animation = "Run" },
 	Sprint = { category = "Gait", tier = 4, animation = "Sprint" },
+
+	-- Turn-in-place one-shots. Gait-layer overrides driven by MovementController
+	-- (input/facing angle gap while near-stationary), not by speed. Non-looping:
+	-- the controller paces the root rotation to the track and exits the state
+	-- when the gap closes or the track ends. MovementService rejects these as a
+	-- reported state (category ~= Gait), so they are purely visual/client-side.
+	Turn90Left = { category = "Turn", animation = "Turn90Left", looped = false },
+	Turn90Right = { category = "Turn", animation = "Turn90Right", looped = false },
+	Turn180Left = { category = "Turn", animation = "Turn180Left", looped = false },
+	Turn180Right = { category = "Turn", animation = "Turn180Right", looped = false },
 
 	Eat = {
 		category = "Action",
@@ -108,6 +127,10 @@ end
 
 function MovementStates.IsGait(name: string): boolean
 	return MovementStates.Get(name).category == MovementStates.Category.Gait
+end
+
+function MovementStates.IsTurn(name: string): boolean
+	return MovementStates.Get(name).category == MovementStates.Category.Turn
 end
 
 function MovementStates.IsAction(name: string): boolean

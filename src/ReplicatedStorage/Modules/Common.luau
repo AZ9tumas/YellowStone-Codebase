@@ -18,9 +18,68 @@ local module = {}
 local Stats = require(script.Parent:WaitForChild("Stats"))
 local CreatureStats = Stats.Creatures
 
+-- Per-species/gender creature config row (see Stats/CreatureStats.luau). Keyed
+-- indexer covers gait-derived lookups (e.g. `info[gait .. "Speed"]`,
+-- `info[gait .. "TurnRate"]`) that aren't fixed field names.
+export type CreatureInfo = {
+	[string]: any,
+
+	IdleSpeed: number,
+	WalkSpeed: number,
+	TrotSpeed: number,
+	RunSpeed: number,
+	SprintSpeed: number,
+
+	MaxStamina: number,
+	RunStaminaDrain: number,
+	SprintStaminaDrain: number,
+
+	TrotStaminaGain: number,
+	WalkStaminaGain: number,
+	IdleStaminaGain: number,
+
+	MaxHealthSpeedPenalty: number,
+	StaminaPenaltyThreshold: number,
+	HealthPenaltyThreshold: number,
+
+	Acceleration: number,
+	Deceleration: number,
+
+	BaseTurnRate: number,
+	-- Demanded-turn-angle (deg) -> speed multiplier control points, linearly
+	-- interpolated (MovementMath.EvaluateTurnBrakeCurve). Required per creature.
+	TurnBrakeCurve: { { Angle: number, Brake: number } },
+	-- Turn-in-place tuning. Optional: only creatures with Turn90*/Turn180*
+	-- animations define it; without it the feature is disabled for the creature.
+	TurnInPlace: {
+		MaxSpeed: number,
+		MinAngle: number,
+		Angle180: number,
+		ExitAngle: number,
+	}?,
+
+	MaxTiltAngle: number,
+	TiltSensitivity: number,
+	TiltSpeed: number,
+
+	TerrainAlignmentEnabled: boolean,
+	TerrainAlignmentSpeed: number,
+	MaxTerrainPitch: number,
+	MaxTerrainRoll: number,
+	MaxTerrainAngle: number,
+	MaxClimbAngle: number,
+	TerrainRaycastDistance: number,
+
+	AttackDamage: number,
+	StaminaAttackCost: number,
+	HealthAttackCost: number,
+
+	Animations: { [string]: string },
+}
+
 -- Returns the creature config table for a spawned player. Fails loud if the
 -- player is not properly set up.
-function module.GetPlayerInfo(plr: Player)
+function module.GetPlayerInfo(plr: Player): CreatureInfo
 	local characterName = plr:GetAttribute("CharacterName")
 	assert(characterName, `GetPlayerInfo: player "{plr.Name}" has no CharacterName attribute (not spawned?)`)
 
