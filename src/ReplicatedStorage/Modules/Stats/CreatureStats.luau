@@ -207,9 +207,9 @@ return {
 
 			["Animations"] = {
 				["Idle"] = "rbxassetid://78565435936342",
-				["Walk"] = "rbxassetid://133712899263986",
-				["Trot"] = "rbxassetid://83483811377818",
-				["Run"] = "rbxassetid://137519995520440",
+				["Walk"] = "rbxassetid://114896327132532",
+				["Trot"] = "rbxassetid://80974184092808",
+				["Run"] = "rbxassetid://102193505149804",
 				["Sprint"] = "rbxassetid://128343239222496",
 
 				-- Turn-in-place one-shots (names match MovementStates turn states).
