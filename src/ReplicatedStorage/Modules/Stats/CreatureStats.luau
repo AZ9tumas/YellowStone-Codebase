@@ -168,29 +168,102 @@ return {
 			["SwimmingTurnRate"] = 4,     -- Turning circle when swimming
 
 			-- Demanded-turn-angle (deg) -> speed multiplier, linearly interpolated
-			-- (see MovementMath.EvaluateTurnBrakeCurve). The wolf plants for sharp
-			-- turns: at 120°+ the brake reaches 0, so a demanded reversal stops it
-			-- completely and resolves as a turn-in-place (The-Isle-style).
+			-- (see MovementMath.EvaluateTurnBrakeCurve). The wolf plants hard for
+			-- sharp turns but never fully stops.
 			["TurnBrakeCurve"] = {
 				{ Angle = 0,   Brake = 1 },
 				{ Angle = 10,  Brake = 1 },    -- micro-corrections are free
 				{ Angle = 45,  Brake = 0.6 },
-				{ Angle = 90,  Brake = 0.2 },
-				{ Angle = 120, Brake = 0 },
-				{ Angle = 180, Brake = 0 },
-			},
-
-			-- Turn-in-place (requires the Turn90*/Turn180* animations below).
-			["TurnInPlace"] = {
-				["MaxSpeed"] = 2.5, -- studs/s: at/below this actual speed the turn happens in place
-				["MinAngle"] = 55,  -- deg input/facing gap that starts a turn-in-place
-				["Angle180"] = 120, -- deg gap at/above which the 180 animation is used
-				["ExitAngle"] = 12, -- deg gap below which the turn is considered finished
+				{ Angle = 90,  Brake = 0.25 },
+				{ Angle = 180, Brake = 0.2 },
 			},
 
 			["MaxTiltAngle"] = 30,
 			["TiltSensitivity"] = 0.5,
 			["TiltSpeed"] = 2,
+
+			-- Procedural body language (see Movement/BodyArticulation). Chains
+			-- are processed in order; a chain may only Follow one declared
+			-- before it. Bank replaces the whole-body tilt above for this
+			-- creature (MovementController zeroes it when Bank is present).
+			["BodyArticulation"] = {
+				["SpeedRef"] = "TrotSpeed", -- fully on at a trot
+				["IdleScale"] = 0.35,       -- still articulates a little when turning on the spot
+				["Chains"] = {
+					{ -- rear falls behind the chest, then swings through
+						["Name"] = "Spine",
+						["Bones"] = { "Back.001", "Back.002", "Lowe Back" },
+						["Weights"] = { 0.25, 0.35, 0.40 }, -- lumbar bends most
+						["MaxYaw"] = 22,
+						["Frequency"] = 2.5,
+						["Damping"] = 0.7,   -- < 1: slight overshoot = follow-through
+					},
+					{ -- head looks where the player is steering before the body gets there
+						["Name"] = "Neck",
+						["Bones"] = { "Neck.001", "Neck.002" },
+						["Weights"] = { 0.45, 0.55 },
+						["MaxYaw"] = 30,
+						["Frequency"] = 6.0, -- must beat the body's turn rate or there is no lead
+						["Damping"] = 1.0,   -- no overshoot on the head
+						["TracksTarget"] = true,
+					},
+					{ -- trails the spine with more lag and a looser spring
+						["Name"] = "Tail",
+						["Bones"] = { "Tail.001", "Tail.002", "Tail.003", "Tail.004", "Tail.005", "Tail.006", "Tail.007" },
+						["MaxYaw"] = 45,
+						["Frequency"] = 1.8,
+						["Damping"] = 0.45,
+						["Follows"] = "Spine",
+					},
+				},
+				["Bank"] = {
+					["Bone"] = "Chest",
+					["MaxRoll"] = 18,
+					["Frequency"] = 2.5,
+					["Damping"] = 0.9,
+				},
+			},
+
+			-- Terrain foot planting (see Movement/LegIK). Every distance is a
+			-- fraction of the leg's own rest length and the paw's ground
+			-- clearance is read off the rig, so there is nothing here to
+			-- re-tune if the creature is rescaled.
+			["LegIK"] = {
+				["Legs"] = {
+					{ ["Name"] = "FrontLeft",  ["Upper"] = "Shoulder.L", ["Mid"] = "Forearm.L", ["Foot"] = "Front Paw.L" },
+					{ ["Name"] = "FrontRight", ["Upper"] = "Shoulder.R", ["Mid"] = "Forearm.R", ["Foot"] = "Front Paw.R" },
+					{ ["Name"] = "BackLeft",   ["Upper"] = "Thigh.L",    ["Mid"] = "Leg.L",     ["Foot"] = "Back Paw.L" },
+					{ ["Name"] = "BackRight",  ["Upper"] = "Thigh.R",    ["Mid"] = "Leg.R",     ["Foot"] = "Back Paw.R" },
+				},
+				-- Ancestor of the whole body, so lowering it lets an
+				-- over-reaching leg touch down instead of stretching straight.
+				["BodyBone"] = "Body IK CTRL",
+			},
+
+			-- Attention (see Movement/HeadLook). Composes with the Neck chain
+			-- above: that leads into a TURN, this aims at a THING.
+			["HeadLook"] = {
+				["Bones"] = { "Neck.002", "Head" },
+				["Weights"] = { 0.4, 0.6 }, -- head carries more than the neck
+				["Aim"] = "Nose",           -- marks "forward" without assuming a bone axis
+				["MaxYaw"] = 55,
+				["MaxPitch"] = 35,
+				["Response"] = 6,
+				["Radius"] = 60,
+				["Cone"] = 120,
+			},
+
+			-- Interruptible sharp turns (see Movement/TurnInPlace). Authored
+			-- clips loop while the demand persists; movement stays available.
+			-- To experiment with procedural 180 footwork again, replace its row
+			-- with { ["Angle"] = 180, ["Duration"] = 1.6 } (PawStepper is retained).
+			["TurnInPlace"] = {
+				["MinAngle"] = 60, -- deg: smaller demands use ordinary steering
+				["Turns"] = {
+					{ ["Angle"] = 90,  ["Left"] = "Turn90Left", ["Right"] = "Turn90Right" },
+					{ ["Angle"] = 180, ["Left"] = "Turn180Left", ["Right"] = "Turn180Right" },
+				},
+			},
 
 			-- Terrain Alignment
 			["TerrainAlignmentEnabled"] = true,
@@ -212,7 +285,7 @@ return {
 				["Run"] = "rbxassetid://102193505149804",
 				["Sprint"] = "rbxassetid://128343239222496",
 
-				-- Turn-in-place one-shots (names match MovementStates turn states).
+				-- Authored turn overlays (TurnInPlace above).
 				["Turn90Left"] = "rbxassetid://140093023419940",
 				["Turn90Right"] = "rbxassetid://76931076997938",
 				["Turn180Left"] = "rbxassetid://101609312038608",

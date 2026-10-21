@@ -1,5 +1,10 @@
 # Architecture and Authority
 
+> **Reference for the client/server contract and the per-frame pipeline.**
+> New to the codebase? Start with [Getting Started](Getting-Started.md) and the
+> [Code Tour](Code-Tour.md); this page assumes the vocabulary in the
+> [Glossary](Glossary.md).
+
 ## Authority model
 
 The movement system splits authority so that exploits on speed are impossible
@@ -70,10 +75,7 @@ $$
   `abortOnMove` actions.
 * Resolves the **visual gait** from the measured velocity
   ([Gait Resolution](Gait-Resolution.md)).
-* Resolves **turn-in-place** ([Turn In Place](Turn-In-Place.md)); an active
-  turn state overrides the visual gait on the gait slot.
-* Sends the **intent** to the server — only when it changes, and never a turn
-  state:
+* Sends the **intent** to the server — only when it changes:
 
 ```
 intent = "Idle"                     if freezing action or no input
@@ -102,11 +104,9 @@ State is split into two orthogonal slots held by `StateMachine`
 (one instance per character life):
 
 * **Gait slot** — exactly one of `Idle | Walk | Trot | Run | Sprint`
-  (category `Gait`), or one of the four turn-in-place states
-  `Turn90Left | Turn90Right | Turn180Left | Turn180Right` (category `Turn`).
-  Drives the single locomotion animation track. There is deliberately **no
-  transition graph**: the gait is a function of the current speed, so it can
-  never desync from physics.
+  (category `Gait`). Drives the single locomotion animation track. There is
+  deliberately **no transition graph**: the gait is a function of the current
+  speed, so it can never desync from physics.
 * **Action slot** — zero or one of `Eat | Drink | Fight | Rest1 | Rest2`
   (category `Action`). Actions are *requested* and may be rejected
   declaratively (`blockedGaits`, `guard`). Freezing actions
@@ -134,13 +134,23 @@ On morph the server:
 
 1. Clones the species model and sets `CharacterName` / `Gender` / `State`
    attributes.
-2. Creates the body movers on the `HumanoidRootPart`:
+2. Applies the **physics contract** before parenting: the `HumanoidRootPart`
+   collides and carries the mass, every other part is massless and
+   non-collidable. The rigs ship with no collidable part at all, so without
+   this a creature walks straight through walls — see
+   [Known Issues](Known-Issues.md).
+3. Creates the body movers on the `HumanoidRootPart`:
    * `LinearVelocity` — plane-locked (XZ), unlimited XZ force, zero Y force.
    * `AlignOrientation` — one-attachment, **force-based**
      (`RigidityEnabled = false`; rigid alignment would force-rotate the root
      through geometry and eject the character upward).
-3. Builds the per-player `Animations` folder from the creature's
+4. Builds the per-player `Animations` folder from the creature's
    `Animations` config table — the client `AnimationController` loads every
    entry in it at spawn.
-4. Fires `Spawned` to the client, which rebuilds its `MovementObject`
+5. Starts the **fall guard**, which remembers the last pose the creature was
+   genuinely standing in and restores it if the root ever drops near
+   `FallenPartsDestroyHeight`. Collision cannot recover a body that is already
+   inside terrain; this is what stops a fall-through ending in a destroyed
+   character.
+6. Fires `Spawned` to the client, which rebuilds its `MovementObject`
    (all per-life state, cleaned up via a `Trove` on `CharacterRemoving`).

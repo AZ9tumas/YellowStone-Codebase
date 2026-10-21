@@ -16,6 +16,10 @@
 local module = {}
 
 local Stats = require(script.Parent:WaitForChild("Stats"))
+local BodyArticulation = require(script.Parent:WaitForChild("Movement"):WaitForChild("BodyArticulation"))
+local LegIK = require(script.Parent:WaitForChild("Movement"):WaitForChild("LegIK"))
+local HeadLook = require(script.Parent:WaitForChild("Movement"):WaitForChild("HeadLook"))
+local TurnInPlace = require(script.Parent:WaitForChild("Movement"):WaitForChild("TurnInPlace"))
 local CreatureStats = Stats.Creatures
 
 -- Per-species/gender creature config row (see Stats/CreatureStats.luau). Keyed
@@ -49,14 +53,14 @@ export type CreatureInfo = {
 	-- Demanded-turn-angle (deg) -> speed multiplier control points, linearly
 	-- interpolated (MovementMath.EvaluateTurnBrakeCurve). Required per creature.
 	TurnBrakeCurve: { { Angle: number, Brake: number } },
-	-- Turn-in-place tuning. Optional: only creatures with Turn90*/Turn180*
-	-- animations define it; without it the feature is disabled for the creature.
-	TurnInPlace: {
-		MaxSpeed: number,
-		MinAngle: number,
-		Angle180: number,
-		ExitAngle: number,
-	}?,
+	-- Procedural body language (spine lag, neck lead, tail whip, chest bank).
+	-- Optional: absent = disabled for the creature. The schema lives with the
+	-- module that consumes it.
+	BodyArticulation: BodyArticulation.Config?,
+	LegIK: LegIK.Config?,
+	HeadLook: HeadLook.Config?,
+	-- Standstill turns played from the creature's turn clips. Optional.
+	TurnInPlace: TurnInPlace.Config?,
 
 	MaxTiltAngle: number,
 	TiltSensitivity: number,
@@ -77,22 +81,24 @@ export type CreatureInfo = {
 	Animations: { [string]: string },
 }
 
+-- The creature config row for a species + gender. Fails loud on an unknown
+-- pair — there is no sensible default creature.
+function module.GetInfo(characterName: string, gender: string): CreatureInfo
+	local byName = CreatureStats[characterName]
+	assert(byName, `GetInfo: no creature stats for "{tostring(characterName)}"`)
+	local byGender = byName[gender]
+	assert(byGender, `GetInfo: no stats for "{characterName}.{tostring(gender)}"`)
+	return byGender
+end
+
 -- Returns the creature config table for a spawned player. Fails loud if the
 -- player is not properly set up.
 function module.GetPlayerInfo(plr: Player): CreatureInfo
 	local characterName = plr:GetAttribute("CharacterName")
 	assert(characterName, `GetPlayerInfo: player "{plr.Name}" has no CharacterName attribute (not spawned?)`)
-
-	local byName = CreatureStats[characterName]
-	assert(byName, `GetPlayerInfo: no creature stats for "{characterName}"`)
-
 	local gender = plr:GetAttribute("Gender")
 	assert(gender, `GetPlayerInfo: player "{plr.Name}" has no Gender attribute`)
-
-	local byGender = byName[gender]
-	assert(byGender, `GetPlayerInfo: no stats for "{characterName}.{gender}"`)
-
-	return byGender
+	return module.GetInfo(characterName, gender)
 end
 
 -- Has the player been morphed into a creature yet? Use this to gate code that

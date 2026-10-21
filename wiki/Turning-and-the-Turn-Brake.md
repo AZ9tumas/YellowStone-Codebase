@@ -1,5 +1,10 @@
 # Turning and the Turn Brake
 
+> **Reference for turn rates and the speed cost of turning.**
+> New to the codebase? Start with [Getting Started](Getting-Started.md) and the
+> [Code Tour](Code-Tour.md); this page assumes the vocabulary in the
+> [Glossary](Glossary.md).
+
 Turning follows The Isle's model: **rotation is free but rate-capped per
 gait**, and the *cost* of turning is paid in **speed**, through a per-creature
 brake curve driven by how sharp a turn the player is demanding.
@@ -31,9 +36,7 @@ turn direction from the cross-product sign. Faster gaits configure lower
 turn rates (e.g. Wolf: Idle $10$, Walk/Trot $6$, Run/Sprint $4$ rad/s), which
 produces wide, momentum-respecting arcs at speed.
 
-While **resting**, rotation is disabled entirely. While a **turn-in-place**
-state is active, this branch is replaced by animation-paced rotation
-(see [Turn In Place](Turn-In-Place.md)).
+While **resting**, rotation is disabled entirely.
 
 ## 2. The brake — a per-creature curve over the demanded angle
 
@@ -73,16 +76,15 @@ loud, per the project's no-fallback rule.
 | 0 | 1.00 | 1.00 | 1.00 |
 | 5–10 (free zone) | 1.00 | 1.00 | 1.00 |
 | 40–45 | 0.60 | 0.45 | 0.42 |
-| 75–90 | 0.20 | 0.25 | 0.28 |
-| 120 | **0.00** | — | — |
-| 180 | **0.00** | 0.25 | 0.28 |
+| 75–90 | 0.25 | 0.25 | 0.28 |
+| 180 | 0.20 | 0.25 | 0.28 |
 
-The wolf **plants**: at a demanded heading change of $120°$ or more the brake
-reaches exactly $0$, so a demanded reversal stops it completely and resolves
-as a turn-in-place — the Isle behaviour. The horse and deer always keep some
-momentum through a turn (curves bottom out above zero). This is the intended
-axis of species differentiation: give each creature whatever curve shape fits
-its body mass and agility.
+The wolf **plants** hardest — it sheds the most speed on a sharp turn — while
+the heavier horse and the deer keep more momentum through one. Every curve
+bottoms out **above zero**: a brake of exactly $0$ stops the creature dead and
+lets it pivot on the spot, which is not a behaviour this system has any more.
+This is the intended axis of species differentiation: give each creature
+whatever curve shape fits its body mass and agility.
 
 ## 3. Easing — decelerate in, accelerate out
 
@@ -95,9 +97,17 @@ b \leftarrow b + \big(B(\theta_{\text{gap}}) - b\big)\big(1 - e^{-k_b\,\Delta t}
 \qquad k_b = 10\ \text{s}^{-1}
 $$
 
-While a turn-in-place is active the target is forced to $0$ (the creature
-holds its ground); on exit the same easing ramps $b \to 1$, producing the
-smooth launch out of the turn.
+The 90 and 180 turn overlays use this same curve. They never force the brake
+to zero, zero velocity, or report Idle while movement input is held. Releasing
+input, aligning with the requested heading, reversing direction, starting an
+action, or leaving the ground interrupts the current clip immediately, with a
+0.1-second visual fade. Sustained sharp input repeats the clip without a gap.
+
+`TurnInPlace` applies incremental rotation toward the live heading, paced by
+the clip's smoothstep curve and capped by the gait's turn rate. It never
+finishes a cached heading after input changes. Wolf uses authored clips for
+both 90 and 180 degrees. The procedural `PawStepper` remains available through
+a turn row with `Duration = 1.6` instead of `Left`/`Right` clip names.
 
 Because the per-gait turn rate still caps rotation, a sharp turn demanded at a
 slow-turning gait (Sprint) keeps $\theta_{\text{gap}}$ large for **more

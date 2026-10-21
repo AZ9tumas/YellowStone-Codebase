@@ -17,6 +17,7 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
@@ -28,7 +29,8 @@ local CreatureStats = Stats.Creatures
 local SpawnService = Knit.CreateService({
 	Name = "SpawnService",
 	Client = {
-		-- Fired to a player once their creature is fully set up.
+		-- Fired to a player once their creature is fully set up, with the new
+		-- character model (nil on the client if it has not replicated yet).
 		Spawned = Knit.CreateSignal(),
 	},
 })
@@ -161,6 +163,107 @@ local function placeOnBase(char: Model, spawnBase: BasePart?)
 	char:PivotTo(cf)
 end
 
+-- Make the rig a physically real creature.
+--
+-- The models ship from Blender with EVERY part CanCollide = false and the mass
+-- sitting on the cosmetic meshes while the HumanoidRootPart is Massless. That
+-- leaves the creature with no collision geometry at all: the only thing holding
+-- it up is the Humanoid's own floor probe. Measured consequences — it walks
+-- straight through a solid wall at 60 studs/s, and anywhere the probe comes up
+-- empty there is nothing to land on, which is the "clipping through the floor"
+-- report.
+--
+-- The contract, enforced here rather than in the models so it holds for every
+-- creature and gender and cannot be lost when a rig is re-exported:
+--   * HumanoidRootPart is the physics body — it collides and carries the mass.
+--   * Everything else is decoration — no collision, no mass.
+--
+-- Only the root collides on purpose. The visible wolf is ~7 studs long; giving
+-- the meshes collision would snag it on every slope and doorway, which is also
+-- why this does not resize the root. Size and HipHeight are left exactly as
+-- authored: the Humanoid holds the root's BOTTOM at HipHeight above the floor,
+-- so changing either would move the whole body and re-tune LegIK by accident.
+local function applyPhysicsContract(char: Model)
+	local hrp = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not hrp then
+		warn("SpawnService: no HumanoidRootPart — the creature will have no collision")
+		return
+	end
+	hrp.CanCollide = true
+	hrp.Massless = false
+	for _, d in char:GetDescendants() do
+		if d:IsA("BasePart") and d ~= hrp then
+			d.CanCollide = false
+			d.Massless = true
+		end
+	end
+end
+
+-- Put a creature back when it ends up below the world.
+--
+-- Collision cannot solve this one. Roblox does not eject a body that is
+-- already INSIDE terrain — verified with a plain collidable part, which sinks
+-- exactly the same way a creature does — and the Humanoid's floor probe is a
+-- sensor, not a support, so it finds nothing either. That state is reachable
+-- in normal play: a fast descent can end up under the surface, and with
+-- StreamingEnabled a creature can outrun the terrain streaming in beneath it.
+-- Left alone the character accelerates to FallenPartsDestroyHeight and is
+-- destroyed, which is the "fell through the floor and never came back" report.
+--
+-- So remember where it was last genuinely standing and put it back there. The
+-- trigger sits just above the destroy height — far below any reachable ground
+-- — so a legitimate fall down a cliff is never interrupted.
+local GUARD_INTERVAL = 0.25 -- s between ground samples
+-- Just past where a standing root sits (HipHeight + half the root). Any deeper
+-- and a creature falling PAST a ledge would record it as somewhere it stood.
+local GUARD_PROBE = 6 -- studs
+-- A body in flight can still pass within probe range of geometry, so the
+-- sample also requires it to be near-stationary vertically. Without this the
+-- guard learns a "safe" spot mid-fall and rescues the creature straight back
+-- into the ground it was falling through.
+local GUARD_MAX_FALL = 5 -- studs/s
+local RESCUE_MARGIN = 50 -- studs above FallenPartsDestroyHeight
+
+local function startFallGuard(player: Player, char: Model)
+	local hrp = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not hrp then
+		return
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { char }
+
+	local safe = hrp.CFrame
+	local clock = 0
+	local conn
+	conn = RunService.Heartbeat:Connect(function(dt)
+		if not (char.Parent and hrp.Parent) then
+			conn:Disconnect()
+			return
+		end
+		if hrp.Position.Y < Workspace.FallenPartsDestroyHeight + RESCUE_MARGIN then
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.CFrame = safe
+			warn(`SpawnService: {player.Name} fell out of the world; returned to the last solid ground`)
+			return
+		end
+		-- Sample rather than test the Humanoid state: FloorMaterial belongs to
+		-- a character the client owns, and a raycast is true wherever the
+		-- authority sits.
+		clock += dt
+		if clock < GUARD_INTERVAL then
+			return
+		end
+		clock = 0
+		if
+			math.abs(hrp.AssemblyLinearVelocity.Y) < GUARD_MAX_FALL
+			and Workspace:Raycast(hrp.Position, Vector3.new(0, -GUARD_PROBE, 0), params)
+		then
+			safe = hrp.CFrame
+		end
+	end)
+end
+
 -- ===== Core morph ============================================================
 
 -- Returns ok:boolean, error:string?. Untrusted input -> validate, don't assert.
@@ -188,6 +291,19 @@ function SpawnService:Morph(player: Player, charName: string, gender: string): (
 
 	local currChar = player.Character
 	local newChar: Model = reqModel:Clone()
+	-- Stamp the species on the model BEFORE it is parented: attributes
+	-- replicate with the instance, so every client sees the correct creature
+	-- the moment CharacterAdded fires. The Player attributes below are set
+	-- afterwards and can lag that event on other clients.
+	newChar:SetAttribute("CharacterName", charName)
+	newChar:SetAttribute("Gender", gender)
+	-- The rig streams as one unit: the root part and the skinned mesh that
+	-- carries every bone arrive and leave together, so the client-side
+	-- articulation never sees half a creature.
+	newChar.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	-- Before parenting: the rig must never exist in the world for even a frame
+	-- without its collision set up.
+	applyPhysicsContract(newChar)
 	newChar.Parent = Workspace
 	newChar.Name = player.Name
 
@@ -224,8 +340,14 @@ function SpawnService:Morph(player: Player, charName: string, gender: string): (
 	local spawnBase = Workspace:FindFirstChild("Base")
 	placeOnBase(newChar, spawnBase :: BasePart?)
 
-	-- Tell the client it can build its movement systems now (replaces initClientScripts).
-	self.Client.Spawned:Fire(player)
+	-- Tell the client it can build its movement systems now (replaces
+	-- initClientScripts). The new character rides along: the model streams
+	-- atomically and can arrive AFTER this remote, in which case the client
+	-- receives nil and waits for CharacterAdded instead of binding to the
+	-- previous character that player.Character may still resolve to.
+	startFallGuard(player, newChar)
+
+	self.Client.Spawned:Fire(player, newChar)
 
 	-- Enable any cloned server scripts after the client has been notified.
 	for _, v in serverScripts do

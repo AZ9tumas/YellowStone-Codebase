@@ -1,5 +1,10 @@
 # Gait Resolution
 
+> **Reference for how the visual gait is derived from measured speed.**
+> New to the codebase? Start with [Getting Started](Getting-Started.md) and the
+> [Code Tour](Code-Tour.md); this page assumes the vocabulary in the
+> [Glossary](Glossary.md).
+
 The **visual gait** (which locomotion animation plays) is derived every frame
 from the creature's *measured* velocity — not from input, and not from the
 server's `WalkSpeed`. This is what makes the animation "super dynamic": it
@@ -59,15 +64,17 @@ $\pm 0.1$ studs/s of jitter flaps the animation every frame. Instead, the
 band only changes when the speed *clearly* crosses a boundary:
 
 $$
-\text{up}_i = T_i\,(1 + h), \qquad
-\text{down}_i = T_i\,(1 - h), \qquad h = 0.12
+\text{up}_i = T_i\,(1 + 0.12), \qquad
+\text{down}_i = T_i\,(1 + 0.06)
 $$
 
 where $T_1 \ldots T_3$ are `WalkSpeed`, `TrotSpeed`, `RunSpeed` (the upper
 bounds of the Walk / Trot / Run bands). To move **up** from tier $i$, the
 smoothed speed must exceed $\text{up}_i$; to move back **down**, it must fall
-below $\text{down}_i$. Between the two thresholds the current gait is held —
-a dead zone of width $2hT_i$ around every boundary.
+below $\text{down}_i$. Between the two thresholds the current gait is held.
+Both edges sit above the slower gait's cruising speed, so slowing to exactly
+that speed always downshifts. The old lower edge, $0.88T_i$, left Run stuck at
+Trot speed and Trot stuck at Walk speed until the player stopped.
 
 The Idle boundary is absolute (a fraction of zero is zero):
 
@@ -85,9 +92,8 @@ while tier > 1 and speed < downBound[tier - 1] do tier -= 1 end
 ```
 
 `ResolveGaitFromVelocity` **asserts** that the passed `currentGait` is one of
-the five locomotion gaits — the controller keeps the last locomotion gait in
-`object.VisualGait` separately from the gait slot (which may hold a turn
-state), so the hysteresis always has a valid previous band.
+the five locomotion gaits. Turn clips are separate overlays and never enter
+the gait slot, so the hysteresis always has a valid previous band.
 
 ## Worked example (Wolf: Walk 7, Trot 16, Run 42)
 
@@ -96,7 +102,9 @@ state), so the hysteresis always has a valid previous band.
 | Cruising at walk speed | $7.0$ | Walk (needs $> 7.84$ to become Trot) |
 | Slope jitter while walking | $7.5$ | Walk — inside the dead zone |
 | Genuine acceleration | $8.2$ | Trot |
-| Trot dips in a bend | $15 \to 12$ | Trot — needs $< 6.16$ to drop to Walk |
+| Trot dips in a bend | $15 \to 12$ | Trot — needs $< 7.42$ to drop to Walk |
+| Sprint slows to trot | $73 \to 16$ | Trot once speed drops below $16.96$ |
+| Run slows to walk | $42 \to 7$ | Walk once speed drops below $7.42$ |
 | Hard turn at Sprint | $73 \to 16$ | Descends Sprint → Run → Trot as speed bleeds |
 | Released input | $\to 0.4$ | Idle below $0.6$ |
 
@@ -105,8 +113,5 @@ state), so the hysteresis always has a valid previous band.
 * The smoothed speed $s$ also drives the **animation playback rate**
   (see [Animation System](Animation-System.md)), so the same filtered signal
   paces the legs and picks the gait.
-* While a **turn-in-place** state owns the gait slot, gait resolution still
-  runs every frame in the background (speed near zero ⇒ `Idle`), so the
-  moment the turn ends the correct band is already known.
 * A **freezing action** (Eat/Drink/Rest) forces the visual gait to `Idle`
   and feeds $s_{\text{raw}} = 0$ into the filter.

@@ -1,8 +1,13 @@
 # Animation System
 
-`AnimationController` plays everything through a **two-layer** model matching
-the two state slots, with phase-synchronized crossfades on the locomotion
-layer — the fix for the visible "snap" when switching gait animations.
+> **Reference for the animation layers, crossfades and playback scaling.**
+> New to the codebase? Start with [Getting Started](Getting-Started.md) and the
+> [Code Tour](Code-Tour.md); this page assumes the vocabulary in the
+> [Glossary](Glossary.md).
+
+`AnimationController` plays everything through a **three-layer** model, with
+phase-synchronized crossfades on the locomotion layer — the fix for the
+visible "snap" when switching gait animations.
 
 ## Layers
 
@@ -10,11 +15,19 @@ layer — the fix for the visible "snap" when switching gait animations.
 |---|---|---|---|
 | **Gait** | `Movement` | exactly one track | `StateMachine.GaitChanged → PlayGait` |
 | **Action** | `Action` | zero or more tracks | `StateMachine.ActionChanged → PlayAction/StopAction` |
+| **Turn** | `Action` | at most one track | `TurnInPlace → PlayTurn/StopTurn` |
 
-Actions *layer on top of* locomotion via Roblox's priority blending (a Fight
-swing plays over a run cycle without replacing it); freezing actions
-(Eat/Drink/Rest) additionally force the gait to Idle through the state layer,
-not the animation layer.
+Actions *layer on top of* locomotion via Roblox's priority blending — a Fight
+swing plays over the gait cycle without replacing it, so the gait keeps
+running underneath and fading the action out always lands back in a live
+mid-cycle pose. Freezing actions (Eat/Drink/Rest) additionally force the gait
+to Idle through the state layer, not the animation layer.
+
+Turn clips play at authored speed and loop while sharp steering continues.
+Repeating the same clip keeps its phase; changing sides starts the opposite
+clip. On cancellation, playback stops immediately and the held pose fades
+back to the live gait over 0.1 seconds. Actions take precedence over turns.
+Turn playback does not freeze movement or replace the locomotion state.
 
 Tracks are loaded from the per-player `Animations` folder that
 `SpawnService.setupAnimations` builds from the creature's `Animations` config
@@ -60,15 +73,17 @@ DEFAULT_FADE_TIME = 0.2  -- action layer
 GAIT_FADE_TIME    = 0.3  -- locomotion layer (full-body cycle swaps)
 ```
 
-### One-shots on the gait layer
+### One-shots
 
-Turn-in-place states pass `looped = false`. Two details matter for one-shots:
+The gait slot only ever holds looping locomotion cycles. If you add a
+non-looped track on the action layer, two details matter:
 
-* A finished non-looped track parks at `TimePosition == Length`; replaying it
-  from there would re-finish instantly. `PlayGait` resets it to $0$ on replay.
-* When the one-shot ends by itself, the controller notices
-  (`IsPlaying == false`) and the state layer swaps the gait slot back to a
-  locomotion gait, which crossfades in normally.
+* A stopped non-looped track parks its `TimePosition` wherever it was faded
+  out (or at `Length` after a natural finish); replaying from there would
+  re-finish instantly. Reset `TimePosition` on a fresh play.
+* A non-looped track that reaches its natural end **hard-cuts** with no fade.
+  Exit through `StopAction(name, fade)` before that can happen, so it blends
+  back into the gait still playing underneath.
 
 ## Playback-rate scaling (foot-ground sync)
 
@@ -84,10 +99,8 @@ where $s$ is the **smoothed** speed from
 [Gait Resolution](Gait-Resolution.md) (the same filtered signal that picks
 the band, so playback rate doesn't shiver with physics jitter) and
 $S_{\text{gait}}$ is the creature's configured speed for the current gait
-(`info[gait .. "Speed"]`). Idle always plays at rate $1$. Turn-in-place
-one-shots are skipped — they play at authored speed, and the **root rotation
-is paced to them**, not the other way around
-(see [Turn In Place](Turn-In-Place.md)).
+(`info[gait .. "Speed"]` — asserted present; the gait slot only ever holds
+locomotion gaits). Idle always plays at rate $1$.
 
 ## Lifecycle
 
@@ -101,10 +114,9 @@ is paced to them**, not the other way around
 
 1. Add the asset id to the creature's `Animations` table in `CreatureStats`
    (the key is the state name — `SpawnService` builds the folder from it).
-2. Add the state row to `MovementStates.Definitions` (category, `animation`,
-   and `looped = false` if it's a one-shot).
-3. Route it: gaits/turns flow through `SetGait`; actions through
-   `RequestAction` with their declarative restrictions.
+2. Add the state row to `MovementStates.Definitions` (category, `animation`).
+3. Route it: gaits flow through `SetGait`; actions through `RequestAction`
+   with their declarative restrictions.
 
 No animation code changes are needed — the controller resolves tracks by
 state name.

@@ -70,11 +70,21 @@ local function cleanup()
 	ContextActionService:UnbindAction("Eat/Drink")
 end
 
-local function initialize()
+-- `spawnedChar` is the model SpawnService just created, or nil when it has
+-- not replicated yet (it streams atomically and can trail the Spawned
+-- remote). player.Character is not a substitute at that instant: it can
+-- still resolve to the previous character.
+local function initialize(spawnedChar: Model?)
 	cleanup()
 	local myGen = generation
 
-	local char = player.Character or player.CharacterAdded:Wait()
+	local char = spawnedChar
+	while not (char and char.Parent) do
+		char = player.CharacterAdded:Wait()
+	end
+	if myGen ~= generation then
+		return
+	end
 	local hum = char:WaitForChild("Humanoid")
 	if not hum then
 		warn("mechanics: invalid character")
@@ -153,7 +163,7 @@ local function initialize()
 					return
 				end
 
-				local Character = player.Character
+				local Character = char
 				local HRP = Character and Character:FindFirstChild("HumanoidRootPart")
 				if not HRP then
 					return
@@ -295,6 +305,6 @@ Knit.OnStart():andThen(function()
 
 	-- Handle the case where we are already spawned when this connects.
 	if player:GetAttribute("CharacterName") and player.Character then
-		initialize()
+		initialize(player.Character)
 	end
 end)

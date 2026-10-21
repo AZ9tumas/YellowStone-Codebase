@@ -15,6 +15,8 @@
 		                  health-based speed penalties
 ]]
 
+local MovementStates = require(script.Parent:WaitForChild("Movement"):WaitForChild("MovementStates"))
+
 local CreatureStats = require(script:WaitForChild("CreatureStats"))
 local MovementMath  = require(script:WaitForChild("MovementMath"))
 local StaminaMath   = require(script:WaitForChild("StaminaMath"))
@@ -24,9 +26,9 @@ local Stats = {
 	Movement  = MovementMath,
 	Stamina   = StaminaMath,
 
-	-- Ordered list of movement stages used across the codebase.
-	-- Hierarchy (slow -> fast): Idle, Walk, Trot, Run, Sprint.
-	MovementStages = { "Idle", "Walk", "Trot", "Run", "Sprint" },
+	-- Ordered gait ladder (slow -> fast). Re-exported from MovementStates,
+	-- which owns it — do not redeclare the list here.
+	MovementStages = MovementStates.GaitOrder,
 }
 
 -- Flatten sub-module functions onto the root for convenient access

@@ -1,5 +1,10 @@
 # Creature Configuration
 
+> **Reference for every key in `CreatureStats`, plus a tuning guide.**
+> New to the codebase? Start with [Getting Started](Getting-Started.md) and the
+> [Code Tour](Code-Tour.md); this page assumes the vocabulary in the
+> [Glossary](Glossary.md).
+
 All per-species tuning lives in one table:
 `src/ReplicatedStorage/Modules/Stats/CreatureStats.luau`, keyed as
 `CreatureStats[CharacterName][Gender]`. `Common.GetPlayerInfo(player)` is the
@@ -38,7 +43,6 @@ speeds the server actually drives.
 | `BaseTurnRate` | Guaranteed max turn rate (rad/s); fallback for gaits without their own |
 | `IdleTurnRate` … `SprintTurnRate`, `SwimmingTurnRate` | Optional per-gait overrides — looked up as `info[gait .. "TurnRate"]` |
 | `TurnBrakeCurve` | **Required.** Demanded-angle → speed-multiplier control points |
-| `TurnInPlace` | **Optional.** Enables turn-in-place; requires the four turn animations |
 
 #### `TurnBrakeCurve`
 
@@ -54,25 +58,13 @@ formula and the shipped curves). Rules, enforced by assertion:
 
 Shaping guide:
 
-* **Full planting stop** (predator, Isle-style): bring the curve to `Brake = 0`
-  at the angle where the creature should refuse to slide (Wolf: 120°). Pair
-  with a `TurnInPlace` block so the stop resolves into a turn animation.
-* **Momentum keeper** (heavy or fleet species): bottom the curve out above
-  zero (Horse: 0.25) — the creature always carries some speed through a turn.
+* **Planter** (agile predator): deepen the mid and tail of the curve so sharp
+  turns cost most of the speed (Wolf: 0.25 at 90°, 0.20 at 180°).
+* **Momentum keeper** (heavy or fleet species): keep the tail higher (Horse:
+  0.25) — the creature always carries more speed through a turn.
 
-#### `TurnInPlace`
-
-```lua
-["TurnInPlace"] = {
-    ["MaxSpeed"]  = 2.5, -- studs/s: at/below this the turn happens in place
-    ["MinAngle"]  = 55,  -- deg gap that triggers a turn
-    ["Angle180"]  = 120, -- deg gap at/above which the 180 animation is used
-    ["ExitAngle"] = 12,  -- deg gap that ends the turn
-},
-```
-
-Omit the whole block for creatures without turn animations — the feature is
-then disabled for that species (this is a feature flag, not a data fallback).
+Never bottom a curve out at exactly `0`: that stops the creature dead and lets
+it pivot on the spot with no forward motion.
 
 ### Tilt (banking)
 
@@ -81,6 +73,21 @@ then disabled for that species (this is a feature flag, not a data fallback).
 | `MaxTiltAngle` | Roll clamp (deg) |
 | `TiltSensitivity` | Roll per yaw-rate gain |
 | `TiltSpeed` | Easing rate (s⁻¹) |
+
+Ignored for a creature whose `BodyArticulation` block has a `Bank` entry — the
+lean is then applied on the chest bone instead (see below).
+
+### Body articulation
+
+| Key | Meaning |
+|---|---|
+| `BodyArticulation` | **Optional.** Procedural spine bend / neck lead / tail whip / chest bank during turns. Absent = off |
+| `LegIK` | **Optional.** Terrain foot planting. Absent = off. Four bone triples and a body bone; every distance is a fraction of leg length, so there are no stud values to retune per creature (see [Leg IK](Leg-IK.md)) |
+| `HeadLook` | **Optional.** Head aims at the nearest creature. Absent = off (see [Head Look](Head-Look.md)) |
+
+The block is documented key-by-key, with a tuning table, in
+[Body Articulation](Body-Articulation.md). Bone names and weights are asserted
+at spawn, so a typo fails loud rather than silently disabling a chain.
 
 ### Terrain alignment
 
@@ -118,15 +125,15 @@ Every gait must have **either** a `<Gait>StaminaDrain` **or** a
 
 `Animations` maps **state name → asset id**. `SpawnService` turns it into the
 player's `Animations` folder; the `AnimationController` resolves tracks by
-state name from there. The five gaits are required; `Turn90Left/Right` and
-`Turn180Left/Right` are required iff `TurnInPlace` is configured; action/rest
-tracks are optional until those features are given animations.
+state name from there. The five gaits are required; action/rest tracks are
+optional until those features are given animations. Extra entries are
+harmless — they are preloaded and simply never played (the Wolf's
+`Turn90Left/Right` and `Turn180Left/Right` ids are parked there for future
+use).
 
 > Animation assets must be **shared with the experience** (or owned by it) or
-> they will fail to load at runtime with a permission error. The movement
-> system degrades gracefully (see
-> [Turn In Place — Hardening](Turn-In-Place.md#hardening-against-brokenslow-assets)),
-> but the animations simply won't show until permissions are granted.
+> they will fail to load at runtime with a permission error. Tracks that fail
+> to load simply never play; the movement system itself keeps working.
 
 ## Checklist: adding a new creature
 
@@ -134,8 +141,7 @@ tracks are optional until those features are given animations.
 2. Add the `CreatureStats[CharacterName][Gender]` row — every key above
    except the optional ones. Missing required keys fail loudly at first use,
    by design.
-3. Author the five gait animations on the creature's rig; add turn one-shots
-   if it should turn in place, plus a `TurnInPlace` block.
+3. Author the five gait animations on the creature's rig.
 4. Shape `TurnBrakeCurve` for the species' mass/agility.
 5. Verify in Studio: watch the debug HUD (`Break`, `Angle`, `State`,
    `TurnRate`) while driving the creature over slopes and through reversals.
@@ -147,8 +153,6 @@ tracks are optional until those features are given animations.
 | Animation flickers between two gaits while cruising | The two adjacent speed configs are too close together; or raise the hysteresis fraction in `MovementMath` |
 | Creature feels like it ice-skates through turns | Deepen the mid-range of `TurnBrakeCurve` |
 | Speed bleeds while running straight | Widen the curve's free zone (first points at `Brake = 1`) |
-| Turn-in-place triggers while jogging | Lower `TurnInPlace.MaxSpeed` |
-| 180 animation used for gentle corners | Raise `TurnInPlace.Angle180` |
 | Body lags terrain changes | Raise `TerrainAlignmentSpeed` |
 | Body jitters on rough terrain | Lower `TerrainAlignmentSpeed` or raise `TerrainRaycastDistance` |
 | Sluggish launch / harsh stops | `Acceleration` / `Deceleration` |

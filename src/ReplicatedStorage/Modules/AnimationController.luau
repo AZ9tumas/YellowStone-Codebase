@@ -1,19 +1,19 @@
 --[[
 	AnimationController
 
-	Per-character animation playback, split to match the two-layer state model:
+	Per-character animation playback on three layers:
 
-	  * GAIT layer   — exactly one locomotion track playing at a time, crossfaded
-	                   on change, at Movement priority. Driven by PlayGait.
-	  * ACTION layer — zero or more action tracks (Eat/Drink/Fight) played at
-	                   Action priority so they LAYER on top of the gait instead
-	                   of replacing it (Roblox blends by priority). Driven by
+	  * GAIT layer   — exactly one locomotion track playing at a time,
+	                   crossfaded on change. Movement priority. Driven by
+	                   PlayGait.
+	  * ACTION layer — zero or more action tracks (Eat/Drink/Fight) at Action
+	                   priority, so they LAYER on top of the gait rather than
+	                   replacing it (Roblox blends by priority). Driven by
 	                   PlayAction / StopAction.
-
-	The old single-slot `currentAnimation` model could only ever play one track,
-	which is wrong for an action that should overlay locomotion (Fight while
-	running). This version keeps the same loading infrastructure but separates
-	the two layers.
+	  * TURN layer   — at most one in-place turn clip (TurnInPlace), over the
+	                   gait at Action priority, always from its first frame at
+	                   its authored speed. Driven by PlayTurn / StopTurn; the
+	                   caller paces the body to the clip and stops it.
 
 	Animations are loaded by name from the player's `Animations` folder, which
 	the server populates during morph (SpawnService.SetupAnimations).
@@ -29,6 +29,7 @@ local DEFAULT_FADE_TIME = 0.2
 local GAIT_FADE_TIME = 0.3
 local GAIT_PRIORITY = Enum.AnimationPriority.Movement
 local ACTION_PRIORITY = Enum.AnimationPriority.Action
+local TURN_PRIORITY = Enum.AnimationPriority.Action
 
 export type AnimationController = {
 	player: Player?,
@@ -37,15 +38,18 @@ export type AnimationController = {
 	animationTracks: { [string]: AnimationTrack },
 	currentGait: string?,
 	activeActions: { [string]: boolean },
+	currentTurn: string?,
 	fadeTime: number,
 
 	Init: (self: AnimationController) -> (),
 	LoadAnimationsFromFolder: (self: AnimationController) -> (),
 	LoadAnimation: (self: AnimationController, name: string, animation: Animation) -> AnimationTrack?,
-	PlayGait: (self: AnimationController, name: string, fadeTime: number?, looped: boolean?) -> (),
+	PlayGait: (self: AnimationController, name: string, fadeTime: number?) -> (),
 	PlayAction: (self: AnimationController, name: string, fadeTime: number?, looped: boolean?) -> (),
 	StopAction: (self: AnimationController, name: string, fadeTime: number?) -> (),
 	StopAllActions: (self: AnimationController, fadeTime: number?) -> (),
+	PlayTurn: (self: AnimationController, name: string, fadeTime: number?) -> AnimationTrack?,
+	StopTurn: (self: AnimationController, fadeTime: number?) -> (),
 	SetAnimationSpeed: (self: AnimationController, name: string, speed: number) -> (),
 	GetTrack: (self: AnimationController, name: string) -> AnimationTrack?,
 	HasAnimation: (self: AnimationController, name: string) -> boolean,
@@ -64,6 +68,7 @@ function AnimationController.new(player: Player): AnimationController
 	self.animationTracks = {}
 	self.currentGait = nil
 	self.activeActions = {}
+	self.currentTurn = nil
 	self.fadeTime = DEFAULT_FADE_TIME
 
 	self:Init()
@@ -153,51 +158,33 @@ function AnimationController:_resolveTrack(name: string): AnimationTrack?
 	return nil
 end
 
--- GAIT layer: crossfade to a new locomotion track. No-op if already playing it.
--- `looped` defaults to true (gait cycles); turn-in-place one-shots pass false.
+-- GAIT layer: crossfade to a new locomotion track. No-op if already playing.
 --
--- The crossfade is PHASE-SYNCED between looping cycles: the incoming track
--- starts at the same normalized cycle time as the outgoing one, so the legs
--- keep their stride phase through the blend instead of popping to a different
--- foot position — that pop was the visible "snap" on gait changes, which no
--- fade length alone can hide. The outgoing track is stopped only after the
--- incoming one starts, so the animator weight-blends the overlap.
-function AnimationController:PlayGait(name: string, fadeTime: number?, looped: boolean?)
+-- The crossfade is PHASE-SYNCED: the incoming track starts at the same
+-- normalized cycle time as the outgoing one, so the legs keep their stride
+-- phase through the blend instead of popping to a different foot position.
+-- That pop was the visible "snap" on gait changes, which no fade length alone
+-- can hide. The outgoing track is stopped only after the incoming one starts,
+-- so the animator weight-blends the overlap.
+function AnimationController:PlayGait(name: string, fadeTime: number?)
 	if self.currentGait == name then
 		return
 	end
 
 	local fade = fadeTime or GAIT_FADE_TIME
-
-	local prev: AnimationTrack? = nil
-	if self.currentGait then
-		prev = self.animationTracks[self.currentGait]
-	end
+	local prev = if self.currentGait then self.animationTracks[self.currentGait] else nil
 
 	local track = self:_resolveTrack(name)
 	self.currentGait = name
-	if not track then
-		if prev and prev.IsPlaying then
-			prev:Stop(fade)
-		end
-		return
-	end
 
-	track.Priority = GAIT_PRIORITY
-	track.Looped = looped ~= false
-	if not track.IsPlaying then
+	if track and not track.IsPlaying then
+		track.Priority = GAIT_PRIORITY
+		track.Looped = true
 		track:Play(fade)
-		if track.Looped then
-			-- Match the outgoing cycle's phase. Length is 0 until the asset
-			-- loads; skip the sync then (the blend still happens, just unphased).
-			if track.Length > 0 and prev and prev.IsPlaying and prev.Looped and prev.Length > 0 then
-				local phase = (prev.TimePosition % prev.Length) / prev.Length
-				track.TimePosition = phase * track.Length
-			end
-		elseif track.Length > 0 and track.TimePosition >= track.Length then
-			-- Replayed one-shot: a finished track parks at its end; without this
-			-- it would re-finish instantly instead of playing again.
-			track.TimePosition = 0
+		-- Match the outgoing cycle's phase. Length is 0 until the asset loads;
+		-- skip the sync then (the blend still happens, just unphased).
+		if track.Length > 0 and prev and prev.IsPlaying and prev.Length > 0 then
+			track.TimePosition = (prev.TimePosition % prev.Length) / prev.Length * track.Length
 		end
 	end
 
@@ -234,6 +221,47 @@ end
 function AnimationController:StopAllActions(fadeTime: number?)
 	for name in pairs(self.activeActions) do
 		self:StopAction(name, fadeTime)
+	end
+end
+
+-- TURN layer: play an in-place turn clip from its first frame at its authored
+-- speed, replacing any different turn still playing. Repeating the same turn
+-- keeps its loop running without restarting or fading between cycles.
+-- Returns nil and plays nothing when
+-- the clip is missing or still loading (Length 0), since the caller has then
+-- no timeline to pace the body to.
+function AnimationController:PlayTurn(name: string, fadeTime: number?): AnimationTrack?
+	local track = self:_resolveTrack(name)
+	if not track or track.Length <= 0 then
+		return nil
+	end
+	if self.currentTurn == name and track.IsPlaying then
+		return track
+	end
+	if self.currentTurn ~= name then
+		self:StopTurn(fadeTime)
+	end
+	track.Priority = TURN_PRIORITY
+	-- Looped, as authored, so a fade-out that runs past the last frame wraps
+	-- onto the identical first one instead of cutting.
+	track.Looped = true
+	track:Play(fadeTime or self.fadeTime, 1, 1)
+	track.TimePosition = 0
+	self.currentTurn = name
+	return track
+end
+
+function AnimationController:StopTurn(fadeTime: number?)
+	local name = self.currentTurn
+	if not name then
+		return
+	end
+	self.currentTurn = nil
+	local track = self.animationTracks[name]
+	if track and track.IsPlaying then
+		-- Stop the step on this input frame; blend the held pose back to gait.
+		track:AdjustSpeed(0)
+		track:Stop(fadeTime or self.fadeTime)
 	end
 end
 
@@ -289,6 +317,7 @@ function AnimationController:RefreshAnimator()
 	self.animationTracks = {}
 	self.currentGait = nil
 	self.activeActions = {}
+	self.currentTurn = nil
 
 	self:LoadAnimationsFromFolder()
 end
@@ -306,6 +335,7 @@ function AnimationController:Destroy()
 	self.animationTracks = {}
 	self.currentGait = nil
 	self.activeActions = {}
+	self.currentTurn = nil
 	self.animator = nil
 	self.animationsFolder = nil
 	self.player = nil

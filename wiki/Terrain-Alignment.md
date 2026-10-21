@@ -1,5 +1,10 @@
 # Terrain Alignment
 
+> **Reference for the ground probe and how the final orientation is composed.**
+> New to the codebase? Start with [Getting Started](Getting-Started.md) and the
+> [Code Tour](Code-Tour.md); this page assumes the vocabulary in the
+> [Glossary](Glossary.md).
+
 The creature's body aligns to the ground it stands on — pitching up slopes,
 rolling across side-hills — while banking into turns and leaning into rest
 postures. Everything composes into a single goal CFrame written to the
@@ -93,9 +98,7 @@ $$
 \tau_{\text{target}} = \operatorname{clamp}\big(\omega_{\text{yaw}} \cdot \texttt{TiltSensitivity},\ \pm\texttt{MaxTiltAngle}\big)
 $$
 
-then eases with $\alpha = 1 - e^{-\texttt{TiltSpeed}\,\Delta t}$. While a
-**turn-in-place** is active the target is forced to $0$ — a stationary pivot
-does not lean.
+then eases with $\alpha = 1 - e^{-\texttt{TiltSpeed}\,\Delta t}$.
 
 The resting lean is a placeholder nose-down pitch per rest depth
 ($-15°$ for Rest1, $-32°$ for Rest2, response $6\ \text{s}^{-1}$), applied

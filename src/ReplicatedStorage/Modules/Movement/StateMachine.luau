@@ -6,11 +6,10 @@
 
 	  gait   : string  -- current locomotion stage. SET each frame from the
 	                       creature's measured velocity (MovementController +
-	                       Stats.ResolveGaitFromVelocity), or a turn-in-place
-	                       state (Turn90*/Turn180*) while one is running. This is
-	                       the VISUAL state and drives the animation; it is NOT
-	                       the value sent to the server (the controller sends the
-	                       input intent).
+	                       Stats.ResolveGaitFromVelocity). This is the VISUAL
+	                       state and drives the locomotion animation; it is NOT
+	                       the value sent to the server (the controller sends
+	                       the input intent).
 	  action : string? -- current action (Eat/Drink/Fight/Rest...), or nil
 
 	Why gait is speed-derived, not input-derived:
@@ -87,14 +86,10 @@ function StateMachine.new(): StateMachine
 end
 
 -- Gait is SET from speed by the controller (Stats.ResolveGaitFromVelocity), not
--- resolved from input here; the controller may also set a turn-in-place state
--- (category Turn), which shares the gait slot because both drive the single
--- locomotion animation track. Fires GaitChanged on a real change.
+-- resolved from input here. Only locomotion gaits are valid. Fires GaitChanged
+-- on a real change.
 function StateMachine:SetGait(name: string)
-	assert(
-		MovementStates.IsGait(name) or MovementStates.IsTurn(name),
-		`StateMachine: "{tostring(name)}" is not a gait or turn state`
-	)
+	assert(MovementStates.IsGait(name), `StateMachine: "{tostring(name)}" is not a locomotion gait`)
 	if self.gait == name then
 		return
 	end

@@ -43,6 +43,10 @@ local TurnRateText: TextLabel = statsFrame:WaitForChild("TurnRate")
 local TurnRPSText: TextLabel = statsFrame:WaitForChild("TurnRPS")
 local CamRateText: TextLabel = statsFrame:WaitForChild("CamRate")
 local MaxTurnText: TextLabel = statsFrame:WaitForChild("MaxTurn")
+-- Body-articulation read-outs. Optional labels: the HUD keeps working if the
+-- creature has no BodyArticulation config or the labels were never added.
+local SpineText: TextLabel? = statsFrame:FindFirstChild("Spine") :: TextLabel?
+local BankText: TextLabel? = statsFrame:FindFirstChild("Bank") :: TextLabel?
 
 local movementController -- populated once Knit.OnStart fires
 
@@ -187,6 +191,55 @@ local function updateStats()
 			CamRateText.Text = string.format("CamRate: %.2f", movementController:GetCamYawRate())
 			MaxTurnText.Text = string.format("MaxTurn: %.2f", movementController:GetMaxTurnRate())
 			StateText.Text = "State: " .. movementController:GetState()
+
+			-- Chains = each configured chain's bend (deg) · feet = each paw's
+			-- terrain correction (studs) · Bank = chest roll (deg) · Gain =
+			-- speed gain · Omega = physical yaw rate (rad/s) · Look = head aim
+			-- off the body's facing (deg) with the feet that found ground.
+			local art = movementController:GetArticulationDebug()
+			local legs = movementController:GetLegIKDebug()
+			local look = movementController:GetHeadLookDebug()
+			if SpineText then
+				local parts = {}
+				if art then
+					for name, deg in art.Chains do
+						parts[#parts + 1] = string.format("%s: %.1f", name, deg)
+					end
+					table.sort(parts)
+				end
+				if legs then
+					local feet = {}
+					for name, studs in legs.Legs do
+						feet[#feet + 1] = string.format("%s: %+.2f", name, studs)
+					end
+					table.sort(feet)
+					parts[#parts + 1] = table.concat(feet, " ")
+				end
+				SpineText.Text = if #parts > 0 then table.concat(parts, "  ") else "Chains: —"
+			end
+			if BankText then
+				if art or legs or look then
+					local bits = {}
+					if art then
+						bits[#bits + 1] =
+							string.format("Bank: %.1f  Gain: %.2f  Omega: %.2f", art.Bank or 0, art.Gain, art.Omega)
+					end
+					if legs then
+						bits[#bits + 1] = string.format("Feet: %d/4  Drop: %.2f", legs.Grounded, legs.BodyDrop)
+					end
+					if look then
+						bits[#bits + 1] = string.format(
+							"Look: %.0f/%.0f %s",
+							look.Yaw,
+							look.Pitch,
+							if look.HasTarget then "*" else "-"
+						)
+					end
+					BankText.Text = table.concat(bits, "  ")
+				else
+					BankText.Text = "Bank: —"
+				end
+			end
 		end
 
 		if commonM.IsSpawned(player) then

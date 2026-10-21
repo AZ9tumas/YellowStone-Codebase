@@ -1,5 +1,10 @@
 # Server Speed Authority
 
+> **Reference for `MovementService`: speed ramping, stamina, health penalties.**
+> New to the codebase? Start with [Getting Started](Getting-Started.md) and the
+> [Code Tour](Code-Tour.md); this page assumes the vocabulary in the
+> [Glossary](Glossary.md).
+
 `MovementService` is the anti-exploit backbone: it is the **only** writer of
 `Humanoid.WalkSpeed`. The client steers and brakes, but the magnitude it may
 travel at comes exclusively from this Heartbeat loop.

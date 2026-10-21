@@ -1,47 +1,34 @@
 --[[
 	MovementStates
 
-	Single source of truth for every movement-related state. Pure data — no
-	behaviour, no Roblox instances. The state system is split into two
-	orthogonal layers and this table describes both:
+	Single source of truth for every movement state. Pure data — no behaviour,
+	no Roblox instances. Two orthogonal categories:
 
-	  * GAIT   — locomotion stages (Idle/Walk/Trot/Run/Sprint). The VISUAL gait
-	             is *derived* every frame from the creature's measured velocity
-	             (see Stats.ResolveGaitFromVelocity) — speed bands with
-	             hysteresis. There is deliberately NO transition graph: a gait
-	             is a function of the current speed, so it can never desync.
+	  * GAIT   — locomotion stages (Idle/Walk/Trot/Run/Sprint). The visual gait
+	             is DERIVED every frame from the creature's measured velocity
+	             (Stats.ResolveGaitFromVelocity) — speed bands with hysteresis.
+	             There is deliberately NO transition graph: a gait is a function
+	             of the current speed, so it can never desync.
 
-	  * TURN   — turn-in-place one-shots (Turn90/Turn180, left/right). They live
-	             on the gait layer (exactly one locomotion track at a time) but
-	             are triggered by the input/facing angle gap while standing, not
-	             by speed, so they get their own category. Non-looping; never
-	             sent to the server (the intent stays a locomotion gait).
+	  * ACTION — discrete, guarded, interruptible activities (Eat/Drink/Fight/
+	             Rest, and anything added later). One action at a time. An
+	             action is requested explicitly and may be rejected.
 
-	  * ACTION — discrete, guarded, interruptible activities (Eat/Drink/Fight,
-	             and anything added later). Only one action runs at a time. An
-	             action is requested explicitly and may be rejected by its
-	             restrictions.
-
-	Adding a new state later = add one row here. Restrictions stay declarative:
-	  * blockedGaits[gait] = true   -> cannot start the action while in that gait
-	                                   (this is the "no eat/drink while sprinting" rule)
-	  * guard(context) -> boolean   -> optional predicate for anything the simple
-	                                   blockedGaits set can't express (low stamina,
-	                                   airborne, on cooldown, ...). Return false to
-	                                   reject. Omit it when not needed.
+	Adding a state = add one row here. Restrictions stay declarative:
+	  * blockedGaits[gait] = true  -> cannot start the action from that gait
+	                                  (the "no eat/drink while sprinting" rule)
+	  * guard(context) -> boolean  -> optional predicate for anything
+	                                  blockedGaits can't express (stamina,
+	                                  airborne, cooldown...). Omit when unused.
 ]]
 
 local MovementStates = {}
 
-export type Category = "Gait" | "Turn" | "Action"
+export type Category = "Gait" | "Action"
 
 export type StateDefinition = {
 	category: Category,
 	animation: string,
-	-- Gait-only:
-	tier: number?, -- ordering, slow (0) -> fast; used by gait resolution
-	-- Turn-only:
-	looped: boolean?, -- turn one-shots set false; nil means looping (all gaits)
 	-- Action-only:
 	freezesMovement: boolean?, -- locomotion is suppressed while this action runs
 	abortOnMove: boolean?, -- movement input cancels the action
@@ -51,30 +38,21 @@ export type StateDefinition = {
 
 MovementStates.Category = {
 	Gait = "Gait" :: Category,
-	Turn = "Turn" :: Category,
 	Action = "Action" :: Category,
 }
 
--- Ordered gait tiers, slowest to fastest. Index === tier. Reference ordering
--- for the Idle -> Walk -> Trot -> Run -> Sprint speed ladder.
+-- THE gait ladder, slowest to fastest. Index === tier. This is the single
+-- source of ordering: Stats.MovementStages and MovementMath's gait resolution
+-- both read it, so adding a gait means editing this list and the row below —
+-- nothing else.
 MovementStates.GaitOrder = { "Idle", "Walk", "Trot", "Run", "Sprint" }
 
 MovementStates.Definitions = {
-	Idle = { category = "Gait", tier = 0, animation = "Idle" },
-	Walk = { category = "Gait", tier = 1, animation = "Walk" },
-	Trot = { category = "Gait", tier = 2, animation = "Trot" },
-	Run = { category = "Gait", tier = 3, animation = "Run" },
-	Sprint = { category = "Gait", tier = 4, animation = "Sprint" },
-
-	-- Turn-in-place one-shots. Gait-layer overrides driven by MovementController
-	-- (input/facing angle gap while near-stationary), not by speed. Non-looping:
-	-- the controller paces the root rotation to the track and exits the state
-	-- when the gap closes or the track ends. MovementService rejects these as a
-	-- reported state (category ~= Gait), so they are purely visual/client-side.
-	Turn90Left = { category = "Turn", animation = "Turn90Left", looped = false },
-	Turn90Right = { category = "Turn", animation = "Turn90Right", looped = false },
-	Turn180Left = { category = "Turn", animation = "Turn180Left", looped = false },
-	Turn180Right = { category = "Turn", animation = "Turn180Right", looped = false },
+	Idle = { category = "Gait", animation = "Idle" },
+	Walk = { category = "Gait", animation = "Walk" },
+	Trot = { category = "Gait", animation = "Trot" },
+	Run = { category = "Gait", animation = "Run" },
+	Sprint = { category = "Gait", animation = "Sprint" },
 
 	Eat = {
 		category = "Action",
@@ -127,10 +105,6 @@ end
 
 function MovementStates.IsGait(name: string): boolean
 	return MovementStates.Get(name).category == MovementStates.Category.Gait
-end
-
-function MovementStates.IsTurn(name: string): boolean
-	return MovementStates.Get(name).category == MovementStates.Category.Turn
 end
 
 function MovementStates.IsAction(name: string): boolean
