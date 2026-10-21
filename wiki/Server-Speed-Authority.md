@@ -102,7 +102,7 @@ $$
 
 ## Why ramping produces the whole speed feel
 
-The client applies $\hat{\mathbf{f}}(W \cdot b)$ every frame. Because $W$
+The client applies $\hat{\mathbf{f}}\,s$ with $s \le W$ every frame. Because $W$
 ramps rather than jumps:
 
 * **Press W:** intent `Walk` → $W$ ramps $0 \to S_{\text{walk}}$ → the

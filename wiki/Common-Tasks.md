@@ -173,8 +173,9 @@ Read [Turning and the Turn Brake](Turning-and-the-Turn-Brake.md) first, then:
 
 * **How fast it can rotate** → `<Gait>TurnRate` / `BaseTurnRate` in the config.
 * **How much speed a turn costs** → `TurnBrakeCurve` in the config.
-* **How sharply the brake engages/releases** → `TURN_BRAKE_RESPONSE` in
+* **How sharply the brake engages** → `TURN_BRAKE_RESPONSE` in
   `MovementController` (a global feel knob, not per-creature).
+* **How fast speed returns after a turn** → the creature's `Acceleration`.
 * **The rotation itself** → the single turn branch in
   `MovementController.updateMovement`.
 * **How the body *looks* while it turns** (spine bend, head lead, tail, bank)

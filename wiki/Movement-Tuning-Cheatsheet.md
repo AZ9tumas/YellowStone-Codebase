@@ -29,10 +29,11 @@ Neither is a direct foot-sliding correction, and changing either affects feel.
 ```
 server:  WalkSpeed  ──ramps toward──▶  stamina-adjusted gait target × health scale
                                         (Acceleration / Deceleration)
-client:  velocity  =  Facing × WalkSpeed × TurnBrake
+client:  velocity  =  Facing × CommandedSpeed   (≤ WalkSpeed)
          Facing    turns toward input at  <VisualGait>TurnRate  (rad/s)
                    or follows a turn clip's pace, still limited by that cap
-         TurnBrake eases toward  TurnBrakeCurve(angle between facing and input)
+         CommandedSpeed → WalkSpeed × TurnBrakeCurve(angle between facing and input)
+                   dropping fast, climbing back at most at Acceleration
          VisualGait = band of the measured speed (Walk/Trot/RunSpeed thresholds)
 ```
 
@@ -51,8 +52,8 @@ time to approach the curve value.
 |---|---|
 | `WalkSpeed` / `TrotSpeed` / `RunSpeed` / `SprintSpeed` | Server target speed for that **input** gait, and reference for the gait animation's playback rate (smoothed measured speed ÷ configured speed, clamped 0.5–1.2). Walk/Trot/Run also define the visual gait boundaries: upshift above the lower gait's speed × 1.12, downshift below it × 1.06. `SprintSpeed` is not another band boundary. Changing a speed can therefore change both travel and animation selection. |
 | `IdleSpeed` | Server target when input is released or an action freezes movement; currently 0 for every animal. |
-| `Acceleration` | How fast the server raises WalkSpeed (studs/s²). Getting up to speed from rest. |
-| `Deceleration` | How fast the server lowers WalkSpeed on release / gait drop. **Does not affect turn braking** — that is client-side and eases at a fixed rate (`TURN_BRAKE_RESPONSE = 10` in MovementController, ~0.1 s time constant). |
+| `Acceleration` | How fast the server raises WalkSpeed (studs/s²), getting up to speed from rest. Also caps how fast speed comes back after a turn (client side). |
+| `Deceleration` | How fast the server lowers WalkSpeed on release / gait drop. **Does not affect turn braking** — speed is shed into a turn client-side at a fixed rate (`TURN_BRAKE_RESPONSE = 10` in MovementController, ~0.1 s time constant). |
 
 ## Turning
 
@@ -180,7 +181,8 @@ not locomotion speed or braking.
 | Tighter turning circle at speed | raise the relevant visual gait's turn rate; matters only when that cap is limiting rotation |
 | Turn clip only on true reversals | raise `TurnInPlace.MinAngle` |
 | Less sliding during turn clips | lower `TurnInPlace.Brake` |
-| Snappier / floatier brake in & out | `TURN_BRAKE_RESPONSE` (code constant, not per animal) |
+| Snappier / softer braking into a turn | `TURN_BRAKE_RESPONSE` (code constant, not per animal) |
+| Faster / slower recovery after a turn | `Acceleration` (also changes acceleration from rest) |
 
 These are tuning relationships, not tested replacement values. Lowering
 `SprintSpeed` also changes straight-line running. Changing `Deceleration`

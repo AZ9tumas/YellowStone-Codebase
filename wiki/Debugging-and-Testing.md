@@ -47,8 +47,10 @@ the hysteresis is too small.
 
 **2. The turn brake.** Sprint, then swing the camera hard and hold a direction.
 `Angle` spikes, `Break` drops well below `1.00`, `Speed` bleeds off, and as the
-facing catches up `Break` eases back to `1.00` and speed recovers. It should
-never reach `0.00` — a zero brake stops the creature dead.
+facing catches up `Break` climbs back to `1.00` as speed recovers. The
+recovery should show on `Peak` as a rise no bigger than `Limit` (the
+creature's `Acceleration`). `Break` should never reach `0.00` — a zero brake
+stops the creature dead.
 
 **3. The turn cap.** While turning hard, `TurnRPS` should sit at or just under
 `MaxTurn`, and `TurnRate` at or just under `1.00`. `MaxTurn` should *drop* as

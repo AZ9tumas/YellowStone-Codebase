@@ -80,6 +80,30 @@ function MovementMath.Accelerate(
 	return currentSpeed + change
 end
 
+-- ===== Turn-braked speed ======================================================
+
+-- One step of the client's commanded speed under the turn brake. Shedding
+-- speed into a turn is eased at `brakeResponse` (1/s), fast enough that the
+-- body reaches walking pace before a turn clip plants the paws. Regaining it
+-- is capped at the creature's `acceleration` (studs/s^2), the same rate the
+-- server ramps WalkSpeed from rest: easing back exponentially instead made
+-- the recovery after a sprint 180 hit ~700 studs/s^2. Never above
+-- `walkSpeed`, so the server's ramp alone governs stopping and gait drops.
+function MovementMath.StepTurnBrakedSpeed(
+	current: number,
+	walkSpeed: number,
+	targetBrake: number,
+	dt: number,
+	acceleration: number,
+	brakeResponse: number
+): number
+	local target = walkSpeed * targetBrake
+	local speed = if target < current
+		then current + (target - current) * (1 - math.exp(-brakeResponse * dt))
+		else math.min(target, current + acceleration * dt)
+	return math.min(speed, walkSpeed)
+end
+
 -- ===== Gait resolution =======================================================
 
 -- The gait ladder lives in MovementStates; derive the name -> tier lookup from

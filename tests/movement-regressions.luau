@@ -256,4 +256,35 @@ do
 	check(stamina.GetStaminaPenalizedSwimSpeed(swim, swim, 0, t) == swim, "slow swim is never penalised")
 end
 
+-- Turn-braked speed: braking into a turn stays fast, the recovery is capped
+-- at Acceleration (it used to spike to ~700 studs/s^2), and the command never
+-- exceeds WalkSpeed. Same result at any frame rate.
+do
+	local info = creatures.Wolf.Male
+	local walk, accel, floor = info.SprintSpeed, info.Acceleration, info.TurnInPlace.Brake
+	for _, fps in { 30, 60, 144 } do
+		local dt = 1 / fps
+		local speed = walk
+		for _ = 1, fps do
+			speed = mathModule.StepTurnBrakedSpeed(speed, walk, floor, dt, accel, 10)
+		end
+		check(speed < walk * floor * 1.1, `brakes into a turn within a second at {fps} FPS`)
+
+		local elapsed, worst = 0, 0
+		while speed < walk - 1e-6 do
+			local before = speed
+			speed = mathModule.StepTurnBrakedSpeed(speed, walk, 1, dt, accel, 10)
+			worst = math.max(worst, (speed - before) / dt)
+			elapsed += dt
+			check(speed <= walk, "recovery never exceeds WalkSpeed")
+		end
+		check(worst <= accel + 1e-6, `recovery capped at Acceleration at {fps} FPS`)
+		local expected = (walk - walk * floor) / accel
+		check(math.abs(elapsed - expected) <= dt + 0.05, `recovery takes (gap / Acceleration) s at {fps} FPS`)
+
+		-- The server dropping WalkSpeed (release, gait drop) is followed at once.
+		check(mathModule.StepTurnBrakedSpeed(walk, 40, 1, dt, accel, 10) == 40, "follows a falling WalkSpeed")
+	end
+end
+
 print(`PASS: {checks} movement regression checks`)

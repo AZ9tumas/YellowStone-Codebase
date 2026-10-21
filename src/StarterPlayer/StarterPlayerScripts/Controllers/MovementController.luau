@@ -7,9 +7,10 @@
 	Authority split:
 	  * CLIENT owns facing + direction (the turning simulation here).
 	  * SERVER owns speed magnitude. Each frame the LinearVelocity is set to
-	      facing.Unit * (Humanoid.WalkSpeed * turnBrake)
-	    and only MovementService drives WalkSpeed, so the client can never
-	    exceed it.
+	      facing.Unit * commandedSpeed,   commandedSpeed <= Humanoid.WalkSpeed
+	    where commandedSpeed is WalkSpeed shaved by the turn brake (regained
+	    no faster than the creature's Acceleration). Only MovementService
+	    drives WalkSpeed, so the client can never exceed it.
 	  * The client sends only its INPUT INTENT (the gait the player is asking
 	    for), and only when it changes. Releasing input reports "Idle", the
 	    server ramps WalkSpeed to 0, and the creature decelerates instead of
@@ -104,7 +105,7 @@ export type obj = {
 	LastFacing: Vector3,
 	Tilt: number,
 	RestPitch: number,
-	TurnBrake: number,
+	TurnBrake: number, -- CommandedSpeed / WalkSpeed (the curve's target while WalkSpeed is 0)
 	CommandedSpeed: number, -- horizontal speed handed to the LinearVelocity this frame
 	CFrame: CFrame,
 	TerrainNormal: Vector3,
@@ -136,9 +137,10 @@ export type obj = {
 local REST_PITCH = { -math.rad(15), -math.rad(32) } -- index === rest depth (1 = Rest1, 2 = Rest2)
 local REST_PITCH_SPEED = 6
 
--- How quickly the turn-speed penalty eases in and out (per second). Higher =
--- snappier decelerate-into / accelerate-out-of a turn; lower = floatier. Purely
--- a client-side feel knob.
+-- How quickly speed is shed INTO a turn (per second). Higher = the creature
+-- plants harder. Coming back OUT of a turn is capped by the creature's
+-- Acceleration instead (Stats.StepTurnBrakedSpeed). Purely a client-side
+-- feel knob.
 local TURN_BRAKE_RESPONSE = 10
 
 -- Exponential smoothing rate (per second) for the measured horizontal speed
@@ -413,19 +415,18 @@ local function updateMovement(self, object: obj, ctx, dt)
 	end
 
 	-- Speed penalty from the DEMANDED turn ANGLE (framerate-independent), read
-	-- off the creature's TurnBrakeCurve and eased so the creature decelerates
-	-- into a turn and accelerates back out. Client-side only. A running turn
+	-- off the creature's TurnBrakeCurve. Client-side only. A running turn
 	-- clip plants the paws, so it may cap the brake lower still (TurnInPlace
 	-- Brake) or the body would slide through the footwork.
 	local targetBrake = Stats.EvaluateTurnBrakeCurve(angleDiff, object.info.TurnBrakeCurve)
 	if object.Turning and object.TurnInPlace then
 		targetBrake = math.min(targetBrake, object.TurnInPlace:GetBrake())
 	end
-	object.TurnBrake += (targetBrake - object.TurnBrake) * (1 - math.exp(-TURN_BRAKE_RESPONSE * dt))
 
-	-- Velocity: always facing.Unit * (WalkSpeed * TurnBrake). Magnitude is owned
-	-- by the server (WalkSpeed); we only shave it locally for turns. We do NOT
-	-- zero it on input release — the server ramps WalkSpeed to 0 and the magnitude
+	-- Velocity: always facing.Unit * CommandedSpeed. Magnitude is owned by the
+	-- server (WalkSpeed); we only shave it locally for turns — shed fast going
+	-- in, regained at the creature's Acceleration coming out. We do NOT zero it
+	-- on input release — the server ramps WalkSpeed to 0 and the magnitude
 	-- follows, producing deceleration.
 	local lv = object.BodyMovers.LinearVelocity
 	if not lv or not lv.Parent then
@@ -447,16 +448,26 @@ local function updateMovement(self, object: obj, ctx, dt)
 		end
 	end
 
+	local walkSpeed = object.Humanoid.WalkSpeed
 	local freezing = sm:FreezesMovement()
 	local blockedClimb = (object.ForwardSlope or 0) > object.info.MaxClimbAngle
 	if freezing or blockedClimb then
+		-- Really stopped, so it accelerates away again from 0.
 		object.CommandedSpeed = 0
 		lv.PlaneVelocity = Vector2.zero
 	else
-		object.CommandedSpeed = object.Humanoid.WalkSpeed * object.TurnBrake
+		object.CommandedSpeed = Stats.StepTurnBrakedSpeed(
+			object.CommandedSpeed,
+			walkSpeed,
+			targetBrake,
+			dt,
+			object.info.Acceleration,
+			TURN_BRAKE_RESPONSE
+		)
 		local v = object.Facing * object.CommandedSpeed
 		lv.PlaneVelocity = Vector2.new(v.X, v.Z)
 	end
+	object.TurnBrake = if walkSpeed > 1e-3 then object.CommandedSpeed / walkSpeed else targetBrake
 end
 
 -- Tilt (banking) + terrain alignment -> AlignOrientation.CFrame. (Ported.)
@@ -884,8 +895,8 @@ function MovementController:IsResting(): boolean
 	return self.object ~= nil and self.object.StateMachine:IsResting()
 end
 
--- Current eased speed-penalty from turning (1 = no penalty, 0.1 = hard turn).
--- Exposed for debug display; will be 1 when no character is loaded.
+-- Fraction of WalkSpeed currently commanded (1 = no penalty, 0.1 = hard turn,
+-- or still climbing back out of one). Debug display; 1 with no character.
 function MovementController:GetTurnBrake(): number
 	return self.object and self.object.TurnBrake or 1
 end

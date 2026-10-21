@@ -86,23 +86,34 @@ lets it pivot on the spot, which is not a behaviour this system has any more.
 This is the intended axis of species differentiation: give each creature
 whatever curve shape fits its body mass and agility.
 
-## 3. Easing — decelerate in, accelerate out
+## 3. Easing — brake fast in, accelerate out at `Acceleration`
 
-The instantaneous curve value is a *target*; the applied brake eases toward
-it exponentially so the creature visibly decelerates into a turn and
-accelerates back out:
+The instantaneous curve value is a *target speed*, $W \cdot B(\theta_{\text{gap}})$.
+The client steps a commanded speed $s$ toward it
+(`MovementMath.StepTurnBrakedSpeed`): speed is shed exponentially, so the
+creature plants into a turn, but regained no faster than the creature's
+`Acceleration` $a$, the same rate the server uses from rest:
 
 $$
-b \leftarrow b + \big(B(\theta_{\text{gap}}) - b\big)\big(1 - e^{-k_b\,\Delta t}\big),
+s \leftarrow \min\Big(W,\;
+\begin{cases}
+s + \big(W B - s\big)\big(1 - e^{-k_b\,\Delta t}\big) & W B < s \\
+\min\big(W B,\; s + a\,\Delta t\big) & \text{otherwise}
+\end{cases}\Big),
 \qquad k_b = 10\ \text{s}^{-1}
 $$
+
+Easing *out* exponentially as well used to recover at
+$k_b (W - s)$ — about 690 studs/s² after a wolf's sprint 180, over 11× its
+`Acceleration` of 60. Capped, the same recovery takes $(73 - 3.7) / 60 \approx 1.15$ s.
+The HUD's `Break` is $s / W$.
 
 The 90 and 180 turn overlays use this same curve, and may cap it lower while
 a clip runs: the target becomes $\min(B(\theta_{\text{gap}}), \texttt{TurnInPlace.Brake})$.
 The clips plant the paws, so without the cap the body kept travelling at the
 curve's floor (wolf: $73 \times 0.2 = 14.6$ studs/s) and slid through the
 footwork. The cap goes through the same easing, so the body settles into the
-turn and accelerates back out when the clip ends. It is never zero, and the
+turn and accelerates back out at `Acceleration` when the clip ends. It is never zero, and the
 overlays never zero velocity or report Idle while movement input is held. Releasing
 input, aligning with the requested heading, reversing direction, starting an
 action, or leaving the ground interrupts the current clip immediately, with a
@@ -125,11 +136,13 @@ $$
 \mathbf{v}_{\text{applied}} =
 \begin{cases}
 \mathbf{0} & \text{freezing action, or forward slope} > \texttt{MaxClimbAngle} \\[4pt]
-\hat{\mathbf{f}}\,\big(W \cdot b\big) & \text{otherwise}
+\hat{\mathbf{f}}\,s & \text{otherwise}
 \end{cases}
 $$
 
 written to the plane-locked `LinearVelocity` as `PlaneVelocity = (v_x, v_z)`.
+A zero-velocity frame also resets $s$ to 0, so the creature accelerates away
+again rather than jumping back to speed.
 
 The velocity is **not** zeroed on input release: the server ramps
 $W \to 0$ (see [Server Speed Authority](Server-Speed-Authority.md)) and the

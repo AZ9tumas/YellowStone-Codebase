@@ -21,12 +21,13 @@ while steering still feels instant:
 Every frame the client applies
 
 $$
-\mathbf{v} = \hat{\mathbf{f}} \cdot \big(W \cdot b\big)
+\mathbf{v} = \hat{\mathbf{f}} \cdot s, \qquad s \le W
 $$
 
 where $\hat{\mathbf{f}}$ is the client-simulated facing (unit vector on the
 XZ plane), $W$ is the replicated server-driven `Humanoid.WalkSpeed`, and
-$b \in [0, 1]$ is the client-side turn brake. Because $b \le 1$, the client can
+$s$ is $W$ shaved by the client-side turn brake (regained no faster than the
+creature's `Acceleration`). Because $s \le W$, the client can
 only ever move **slower** than the server allows, never faster. The vector is
 applied through a plane-locked `LinearVelocity`
 (`VelocityConstraintMode = Plane`, XZ tangents), so the constraint physically
