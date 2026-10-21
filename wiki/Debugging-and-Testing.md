@@ -7,11 +7,18 @@ fake tracks. Studio playtesting remains necessary for physics and visual feel.
 
 ## The debug HUD
 
-Built by `ui.client.luau`, live from the moment you spawn.
+Built by `ui.client.luau`, live from the moment you spawn. The motion rows sit
+at the top. `Accel`, `Peak`, `Cmd`, `Limit` and `Server` are created by the
+script (cloned from `Speed`), so they don't need adding in Studio.
 
 | Field | Source | What it means |
 |---|---|---|
-| `Speed` | `HRP.AssemblyLinearVelocity` (horizontal) | **Actual physics speed.** Not `WalkSpeed` — this is what the body is really doing. |
+| `Speed` | `HRP.AssemblyLinearVelocity` (horizontal) | **Measured physics speed.** Not `WalkSpeed` — this is what the body is really doing. |
+| `Accel` | change in measured `Speed` over 0.1 s | **Measured acceleration**, studs/s². Positive = speeding up |
+| `Peak: +rise/-drop` | largest `Accel` either way over the last second | Read a burst after it's over, e.g. the recovery after a 180 |
+| `Cmd: … WS: …` | `GetCommandedSpeed()`, `Humanoid.WalkSpeed` | What the controller handed the physics (WalkSpeed × Break), and the server's WalkSpeed. `Speed` should track `Cmd` |
+| `Limit: +a/-d` | `Acceleration` / `Deceleration` config | The server's WalkSpeed ramp. Compare with `Peak` |
+| `Server` | `State` attribute (+ `Swimming`) | The gait the server is driving speed for: your reported intent, mapped onto the swim ladder in water |
 | `State` | `MovementController:GetState()` | Visual gait, plus `/ Action` when an action is running |
 | `Break` | `GetTurnBrake()` | The eased turn brake, `0`–`1`. `1.00` = no penalty |
 | `Angle` | `GetTurnAngle()` | Angle gap between facing and demanded heading, degrees |
@@ -89,9 +96,11 @@ is broken" turns out to be the rig: no collidable parts, a massless root, a
 mis-set `HipHeight`. Select the character in the Explorer *while playing* and
 read the real property values.
 
-**Isolate client from server.** If speed is wrong, compare `Speed` on the HUD
-against `Humanoid.WalkSpeed` in the Explorer. If `WalkSpeed` is right and
-`Speed` is wrong, it's the client (brake, facing, body movers). If `WalkSpeed`
+**Isolate client from server.** If speed is wrong, compare `Speed` with the
+`Cmd` and `WS` values on the HUD. If `WalkSpeed` is right and
+`Speed` is wrong, it's the client (brake, facing, body movers). If `Peak`
+is far above `Limit`, something other than the server's ramp is changing
+speed — on land that is the turn brake. If `WalkSpeed`
 itself is wrong, it's `MovementService` (intent reporting, ramping, stamina).
 
 ## Before you call a movement change done

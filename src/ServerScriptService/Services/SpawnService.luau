@@ -56,6 +56,9 @@ end
 --   * AlignOrientation (force based, RigidityEnabled = false) drives facing.
 --     Rigid orientation would force-rotate the HRP through geometry and eject
 --     the character upward, so it stays force based.
+--   * SwimLift, a Y-only LinearVelocity, is disabled on land. In deep water
+--     the client enables it to float the body at the surface (see
+--     Movement/Swimming) — there is no ground there for the ratchet to push on.
 local function addBodyMovers(player: Player)
 	local char = player.Character
 	if not char then
@@ -87,6 +90,17 @@ local function addBodyMovers(player: Player)
 	lv.Enabled = true
 	lv.ForceLimitsEnabled = false
 	lv.Parent = hrp
+
+	local lift = Instance.new("LinearVelocity")
+	lift.Name = "SwimLift"
+	lift.Attachment0 = a1
+	lift.RelativeTo = Enum.ActuatorRelativeTo.World
+	lift.VelocityConstraintMode = Enum.VelocityConstraintMode.Line
+	lift.LineDirection = Vector3.yAxis
+	lift.LineVelocity = 0
+	lift.ForceLimitsEnabled = false
+	lift.Enabled = false
+	lift.Parent = hrp
 
 	if ao then
 		local newAo = ao:Clone()

@@ -97,8 +97,13 @@ b \leftarrow b + \big(B(\theta_{\text{gap}}) - b\big)\big(1 - e^{-k_b\,\Delta t}
 \qquad k_b = 10\ \text{s}^{-1}
 $$
 
-The 90 and 180 turn overlays use this same curve. They never force the brake
-to zero, zero velocity, or report Idle while movement input is held. Releasing
+The 90 and 180 turn overlays use this same curve, and may cap it lower while
+a clip runs: the target becomes $\min(B(\theta_{\text{gap}}), \texttt{TurnInPlace.Brake})$.
+The clips plant the paws, so without the cap the body kept travelling at the
+curve's floor (wolf: $73 \times 0.2 = 14.6$ studs/s) and slid through the
+footwork. The cap goes through the same easing, so the body settles into the
+turn and accelerates back out when the clip ends. It is never zero, and the
+overlays never zero velocity or report Idle while movement input is held. Releasing
 input, aligning with the requested heading, reversing direction, starting an
 action, or leaving the ground interrupts the current clip immediately, with a
 0.1-second visual fade. Sustained sharp input repeats the clip without a gap.

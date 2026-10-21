@@ -26,8 +26,10 @@
 
 	Release input or face the requested heading and the turn stops immediately.
 	Reverse the demand and the opposite clip starts; keep demanding a sharp
-	turn and the clip loops. This module owns only rotation and the visual
-	overlay. It never freezes translation or changes the server's gait intent.
+	turn and the clip loops. This module owns rotation, the visual overlay and
+	an optional speed cap (Brake) for as long as a turn runs: the clips plant
+	the paws, so a body still travelling at speed would slide across the
+	ground. It never freezes translation or changes the server's gait intent.
 ]]
 
 local AnimationController = require(script.Parent.Parent.AnimationController)
@@ -48,6 +50,7 @@ export type TurnConfig = {
 
 export type Config = {
 	MinAngle: number, -- deg: smaller demands use ordinary steering
+	Brake: number?, -- (0, 1]: most speed kept while a turn runs; nil = no cap
 	Turns: { TurnConfig },
 }
 
@@ -73,6 +76,7 @@ type Turn = {
 export type TurnInPlace = typeof(setmetatable(
 	{} :: {
 		minAngle: number,
+		brake: number,
 		turns: { TurnConfig },
 		animations: AnimationController.AnimationController,
 		turn: Turn?,
@@ -139,6 +143,10 @@ function TurnInPlace.new(
 		type(config.MinAngle) == "number" and config.MinAngle > 0 and config.MinAngle <= 180,
 		"TurnInPlace: MinAngle must be in (0, 180]"
 	)
+	assert(
+		config.Brake == nil or (type(config.Brake) == "number" and config.Brake > 0 and config.Brake <= 1),
+		"TurnInPlace: Brake must be in (0, 1]"
+	)
 	assert(type(config.Turns) == "table" and #config.Turns > 0, "TurnInPlace: config declares no Turns")
 	local function known(name: any, where: string)
 		assert(
@@ -165,6 +173,7 @@ function TurnInPlace.new(
 
 	local self = setmetatable({}, TurnInPlace)
 	self.minAngle = math.rad(config.MinAngle)
+	self.brake = config.Brake or 1
 	self.turns = config.Turns
 	self.animations = animations
 	self.turn = nil
@@ -244,6 +253,13 @@ function TurnInPlace:Cancel()
 			self.animations:StopTurn(FADE)
 		end
 	end
+end
+
+-- Speed multiplier the running turn allows (1 when none runs). The caller
+-- takes the lower of this and its turn-brake curve, through the same easing,
+-- so the body settles into the planted footwork and recovers on cancel.
+function TurnInPlace:GetBrake(): number
+	return if self.turn then self.brake else 1
 end
 
 -- A stepped (clip-less) turn is running: the paws are LegIK's to step.

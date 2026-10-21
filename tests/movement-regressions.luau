@@ -26,6 +26,8 @@ local mathModule = loadModule(modules .. "Stats/MovementMath.luau", { Movement =
 local creatures = loadModule(modules .. "Stats/CreatureStats.luau")
 local animations = loadModule(modules .. "AnimationController.luau")
 local turns = loadModule(modules .. "Movement/TurnInPlace.luau", { AnimationController = animations })
+local swimming = loadModule(modules .. "Movement/Swimming.luau")
+local stamina = loadModule(modules .. "Stats/StaminaMath.luau")
 
 local checks = 0
 local function check(condition, message)
@@ -173,6 +175,85 @@ do
 	s.Gap = math.pi
 	turner:Update(s, 0.1)
 	check(turner:IsStepping() and ac.currentTurn == nil, "procedural continuation releases the previous clip")
+end
+
+do
+	local turner, ac, s = fixture(config)
+	check(turner:GetBrake() == 1, "no cap before a turn runs")
+	turner:Update(s, 0.1)
+	check(turner:GetBrake() == config.Brake and config.Brake < 0.2, "running turn caps the brake below the curve floor")
+	s.Steering = false
+	turner:Update(s, 0.1)
+	check(turner:GetBrake() == 1, "cancelled turn releases the cap")
+	local uncapped = turns.new({ MinAngle = 60, Turns = config.Turns }, creatures.Wolf.Male.Animations, ac)
+	check(uncapped:GetBrake() == 1, "omitted Brake means curve only")
+	check(not pcall(turns.new, { MinAngle = 60, Brake = 0, Turns = config.Turns }, creatures.Wolf.Male.Animations, ac),
+		"Brake of 0 is rejected")
+end
+
+-- Swimming: every land intent has a swim gait, and every swimmer has the
+-- rows the server and controller look up by gait name.
+for _, gait in states.GaitOrder do
+	check(states.IsSwimming(states.SwimGaitFor[gait]), `{gait} maps onto the swim ladder`)
+end
+for species, genders in creatures do
+	local info = genders.Male
+	if info.Swimming then
+		swimming.CheckConfig(info.Swimming)
+		for _, gait in states.SwimOrder do
+			check(type(info[gait .. "Speed"]) == "number", `{species}: {gait}Speed`)
+			check(type(info[gait .. "TurnRate"]) == "number", `{species}: {gait}TurnRate`)
+			check(type(info.Animations[gait]) == "string", `{species}: {gait} animation`)
+			check(info[gait .. "StaminaDrain"] ~= nil or info[gait .. "StaminaGain"] ~= nil, `{species}: {gait} stamina row`)
+		end
+	end
+end
+
+do
+	local info = creatures.Wolf.Male
+	local swim = info.SwimSpeed
+	-- Cruising at each swim speed settles on its rung from any history.
+	for _, initial in { "Idle", "Sprint", "SwimIdle", "Swim", "SwimFast" } do
+		for _, target in states.SwimOrder do
+			check(mathModule.ResolveSwimGaitFromVelocity(info[target .. "Speed"], initial, swim) == target,
+				`swim {initial} -> {target} at cruise`)
+		end
+	end
+	-- Leaving the water at speed lands straight on the right land band.
+	check(mathModule.ResolveGaitFromVelocity(info.SwimFastSpeed, "SwimFast", info.WalkSpeed, info.TrotSpeed, info.RunSpeed)
+		== mathModule.ResolveGaitFromVelocity(info.SwimFastSpeed, "Idle", info.WalkSpeed, info.TrotSpeed, info.RunSpeed),
+		"leaving the water restarts the land ladder")
+
+	-- Hysteresis around the swim depth, in units of the root height.
+	local cfg, h = info.Swimming, 3
+	local swimDepth = h * (1 + cfg.FloatDepth)
+	check(not swimming.Decide(false, nil, nil, 0, h, cfg), "no water, no swimming")
+	check(not swimming.Decide(false, 10, 10 - swimDepth * 0.95, 10, h, cfg), "wades in water just too shallow")
+	check(swimming.Decide(false, 10, 10 - swimDepth, 10, h, cfg), "swims once deep enough")
+	check(swimming.Decide(true, 10, 10 - swimDepth * 0.9, 10, h, cfg), "keeps swimming inside the band")
+	check(not swimming.Decide(true, 10, 10 - swimDepth * 0.8, 10, h, cfg), "wades out below the band")
+	check(not swimming.Decide(false, 10, -100, 10 + h, h, cfg), "still falling toward the surface")
+
+	-- The lift settles on the float height from above and below, bounded.
+	local target = 10 - h * cfg.FloatDepth
+	check(math.abs(swimming.LiftVelocity(target, 10, h, cfg)) < 1e-9, "no lift at the float height")
+	check(swimming.LiftVelocity(target - 1, 10, h, cfg) > 0, "rises when too deep")
+	check(swimming.LiftVelocity(target + 1, 10, h, cfg) < 0, "sinks when too high")
+	check(swimming.LiftVelocity(-1000, 10, h, cfg) <= 10 and swimming.LiftVelocity(1000, 10, h, cfg) >= -20,
+		"lift is bounded")
+	for _, fps in { 30, 60, 144 } do
+		local y = target - 2
+		for _ = 1, fps * 3 do
+			y += swimming.LiftVelocity(y, 10, h, cfg) / fps
+		end
+		check(math.abs(y - target) < 0.01, `float settles at {fps} FPS`)
+	end
+
+	-- Stamina: an exhausted fast swim slows to the slow swim, never below it.
+	local t = info.StaminaPenaltyThreshold
+	check(stamina.GetStaminaPenalizedSwimSpeed(info.SwimFastSpeed, swim, 1, t) == info.SwimFastSpeed, "full stamina, full fast swim")
+	check(stamina.GetStaminaPenalizedSwimSpeed(info.SwimFastSpeed, swim, 0, t) == swim, "exhausted fast swim = slow swim")
+	check(stamina.GetStaminaPenalizedSwimSpeed(swim, swim, 0, t) == swim, "slow swim is never penalised")
 end
 
 print(`PASS: {checks} movement regression checks`)

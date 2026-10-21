@@ -75,6 +75,21 @@ function StaminaMath.GetStaminaPenalizedSpeed(
 	return finalSpeed
 end
 
+-- Swim speed allowed by the current stamina. Below the penalty threshold a
+-- fast swim lerps down to `swimSpeed` (the slow swim), which itself is never
+-- penalised: an exhausted creature keeps paddling instead of sinking.
+function StaminaMath.GetStaminaPenalizedSwimSpeed(
+	targetSpeed: number,
+	swimSpeed: number,
+	currentStamina: number,
+	threshold: number
+): number
+	if currentStamina >= threshold or targetSpeed <= swimSpeed then
+		return targetSpeed
+	end
+	return swimSpeed + (targetSpeed - swimSpeed) * (currentStamina / threshold)
+end
+
 -- Attack cost helper: sums penalty cost from low health + low stamina and
 -- returns the final post-cost attack damage.
 function StaminaMath.GetAttackDamage(

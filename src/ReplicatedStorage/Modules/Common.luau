@@ -20,6 +20,7 @@ local BodyArticulation = require(script.Parent:WaitForChild("Movement"):WaitForC
 local LegIK = require(script.Parent:WaitForChild("Movement"):WaitForChild("LegIK"))
 local HeadLook = require(script.Parent:WaitForChild("Movement"):WaitForChild("HeadLook"))
 local TurnInPlace = require(script.Parent:WaitForChild("Movement"):WaitForChild("TurnInPlace"))
+local Swimming = require(script.Parent:WaitForChild("Movement"):WaitForChild("Swimming"))
 local CreatureStats = Stats.Creatures
 
 -- Per-species/gender creature config row (see Stats/CreatureStats.luau). Keyed
@@ -61,6 +62,10 @@ export type CreatureInfo = {
 	HeadLook: HeadLook.Config?,
 	-- Standstill turns played from the creature's turn clips. Optional.
 	TurnInPlace: TurnInPlace.Config?,
+	-- Surface swimming in Terrain water. Optional: absent = the creature never
+	-- swims. A swimmer also needs SwimIdle/Swim/SwimFast speeds, turn rates,
+	-- stamina rows and animations, all read through the keyed indexer.
+	Swimming: Swimming.Config?,
 
 	MaxTiltAngle: number,
 	TiltSensitivity: number,

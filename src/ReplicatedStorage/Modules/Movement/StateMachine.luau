@@ -166,9 +166,10 @@ function StateMachine:IsResting(): boolean
 end
 
 -- R key: enter resting, or sink one posture deeper. Capped at the deepest
--- level. Ignored while a non-rest action (Eat/Drink/Fight) owns the slot.
+-- level. Ignored while a non-rest action (Eat/Drink/Fight) owns the slot, and
+-- while swimming (there is nothing to lie down on).
 function StateMachine:DeepenRest()
-	if self.action and not self:IsResting() then
+	if (self.action and not self:IsResting()) or MovementStates.IsSwimming(self.gait) then
 		return
 	end
 	local depth = self:GetRestDepth()

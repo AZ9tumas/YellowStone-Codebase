@@ -34,6 +34,12 @@
 	    It tracks live input, loops while needed and cancels on release or
 	    alignment. Translation and gait intent remain available throughout.
 
+	Swimming (optional per creature, see Movement/Swimming):
+	  * In Terrain water deep enough to float, SwimLift holds the root at the
+	    surface and the visual gait comes from the swim ladder instead. The
+	    server maps the intent to swim speeds on its own probe; this side only
+	    floats the body, animates it and keeps the paws off the lake bed.
+
 	Body language (all optional per creature, all purely visual — the physics
 	facing is unchanged, and none of it replicates, so ArticulationController
 	re-derives the same thing for everyone else's creature):
@@ -64,6 +70,7 @@ local BoneWriter = require(ReplicatedStorage.Modules.Movement.BoneWriter)
 local LegIK = require(ReplicatedStorage.Modules.Movement.LegIK)
 local HeadLook = require(ReplicatedStorage.Modules.Movement.HeadLook)
 local TurnInPlace = require(ReplicatedStorage.Modules.Movement.TurnInPlace)
+local Swimming = require(ReplicatedStorage.Modules.Movement.Swimming)
 local AnimationController = require(ReplicatedStorage.Modules.AnimationController)
 
 local player = Players.LocalPlayer
@@ -79,6 +86,7 @@ export type obj = {
 	BodyMovers: {
 		LinearVelocity: LinearVelocity?,
 		AlignOrientation: AlignOrientation?,
+		SwimLift: LinearVelocity?, -- only for creatures that can swim
 	},
 	StateMachine: StateMachine.StateMachine,
 	AnimationController: AnimationController.AnimationController,
@@ -97,10 +105,13 @@ export type obj = {
 	Tilt: number,
 	RestPitch: number,
 	TurnBrake: number,
+	CommandedSpeed: number, -- horizontal speed handed to the LinearVelocity this frame
 	CFrame: CFrame,
 	TerrainNormal: Vector3,
 	Grounded: boolean,
 	ForwardSlope: number,
+	Swimming: boolean,
+	SurfaceY: number?, -- water surface over the root, while swimming
 
 	walkStyle: string,
 	runStyle: string,
@@ -292,6 +303,7 @@ local function resolveVisualGait(object, sm, ctx, dt)
 
 	object.VisualGait = if sm:FreezesMovement()
 		then "Idle"
+		elseif object.Swimming then Stats.ResolveSwimGaitFromVelocity(object.SmoothedSpeed, object.VisualGait, object.info.SwimSpeed)
 		else Stats.ResolveGaitFromVelocity(
 			object.SmoothedSpeed,
 			object.VisualGait,
@@ -323,7 +335,8 @@ local function updateTurnInPlace(object: obj, ctx, dt: number)
 		Gap = ctx.angleGap,
 		Sign = ctx.turnSign,
 		Steering = ctx.hasMoveInput,
-		Grounded = object.Humanoid.FloorMaterial ~= Enum.Material.Air,
+		-- The turn clips are footwork; there is nothing to step on in water.
+		Grounded = not object.Swimming and object.Humanoid.FloorMaterial ~= Enum.Material.Air,
 		Blocked = sm:HasAction(),
 		MaxTurnRate = turnRateForGait(object.info, sm:GetGait()),
 	}, dt)
@@ -401,8 +414,13 @@ local function updateMovement(self, object: obj, ctx, dt)
 
 	-- Speed penalty from the DEMANDED turn ANGLE (framerate-independent), read
 	-- off the creature's TurnBrakeCurve and eased so the creature decelerates
-	-- into a turn and accelerates back out. Client-side only.
+	-- into a turn and accelerates back out. Client-side only. A running turn
+	-- clip plants the paws, so it may cap the brake lower still (TurnInPlace
+	-- Brake) or the body would slide through the footwork.
 	local targetBrake = Stats.EvaluateTurnBrakeCurve(angleDiff, object.info.TurnBrakeCurve)
+	if object.Turning and object.TurnInPlace then
+		targetBrake = math.min(targetBrake, object.TurnInPlace:GetBrake())
+	end
 	object.TurnBrake += (targetBrake - object.TurnBrake) * (1 - math.exp(-TURN_BRAKE_RESPONSE * dt))
 
 	-- Velocity: always facing.Unit * (WalkSpeed * TurnBrake). Magnitude is owned
@@ -414,12 +432,29 @@ local function updateMovement(self, object: obj, ctx, dt)
 		return
 	end
 
+	-- Float at the surface. Vertical only, so it composes with the plane
+	-- velocity below; on land it is off and gravity + the Humanoid own Y.
+	local lift = object.BodyMovers.SwimLift
+	if lift then
+		lift.Enabled = object.Swimming
+		if object.Swimming and object.SurfaceY then
+			lift.LineVelocity = Swimming.LiftVelocity(
+				object.HRP.Position.Y,
+				object.SurfaceY,
+				Swimming.RootHeight(object.Humanoid, object.HRP),
+				object.info.Swimming
+			)
+		end
+	end
+
 	local freezing = sm:FreezesMovement()
 	local blockedClimb = (object.ForwardSlope or 0) > object.info.MaxClimbAngle
 	if freezing or blockedClimb then
+		object.CommandedSpeed = 0
 		lv.PlaneVelocity = Vector2.zero
 	else
-		local v = object.Facing * (object.Humanoid.WalkSpeed * object.TurnBrake)
+		object.CommandedSpeed = object.Humanoid.WalkSpeed * object.TurnBrake
+		local v = object.Facing * object.CommandedSpeed
 		lv.PlaneVelocity = Vector2.new(v.X, v.Z)
 	end
 end
@@ -510,11 +545,32 @@ local function updateAnimationSpeed(object)
 	end
 end
 
+-- Same rules as the server's probe (Movement/Swimming), decided locally so
+-- the float and the animation react on the frame the root reaches the water.
+local function updateSwimming(object: obj)
+	local config = object.info.Swimming
+	if not config then
+		return
+	end
+	local root = object.HRP
+	local surfaceY, bedY = Swimming.Probe(root.Position)
+	object.Swimming = Swimming.Decide(
+		object.Swimming,
+		surfaceY,
+		bedY,
+		root.Position.Y,
+		Swimming.RootHeight(object.Humanoid, root),
+		config
+	)
+	object.SurfaceY = if object.Swimming then surfaceY else nil
+end
+
 local function update(self, object, dt)
 	local char = object.Character
 	if not char or object.Humanoid.Parent ~= char or object.HRP.Parent ~= char then
 		return
 	end
+	updateSwimming(object)
 	local ctx = buildContext(self, object)
 	object.TargetDir = ctx.targetDir
 	-- buildContext defaults the sign to +1 when there is nothing to turn
@@ -564,6 +620,10 @@ function MovementController:_buildObject(spawnedChar: Model?)
 
 	local info = Common.GetPlayerInfo(player)
 	assert(info.BaseTurnRate, "MovementController: creature config missing BaseTurnRate")
+	if info.Swimming then
+		Swimming.CheckConfig(info.Swimming)
+		assert(info.SwimSpeed, "MovementController: a creature that swims needs SwimSpeed")
+	end
 
 	-- The skinned mesh that carries the bones can replicate after the root.
 	-- Wait for every bone EVERY layer needs, the same way the remote driver does.
@@ -591,6 +651,11 @@ function MovementController:_buildObject(spawnedChar: Model?)
 	end
 
 	humanoid.AutoRotate = false
+	-- SwimLift floats the body; the Humanoid's own swim physics would fight it.
+	-- The owning client runs the Humanoid's states, so this is the place.
+	if info.Swimming then
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+	end
 
 	local trove = Trove.new()
 	local sm = trove:Add(StateMachine.new())
@@ -616,6 +681,7 @@ function MovementController:_buildObject(spawnedChar: Model?)
 		BodyMovers = {
 			LinearVelocity = hrp:WaitForChild("LinearVelocity", 5),
 			AlignOrientation = hrp:WaitForChild("AlignOrientation", 5),
+			SwimLift = if info.Swimming then hrp:WaitForChild("SwimLift", 5) else nil,
 		},
 		StateMachine = sm,
 		AnimationController = animController,
@@ -634,10 +700,13 @@ function MovementController:_buildObject(spawnedChar: Model?)
 		Tilt = 0,
 		RestPitch = 0,
 		TurnBrake = 1,
+		CommandedSpeed = 0,
 		CFrame = hrp.CFrame,
 		TerrainNormal = Vector3.yAxis,
 		Grounded = true,
 		ForwardSlope = 0,
+		Swimming = false,
+		SurfaceY = nil,
 
 		walkStyle = "Walk",
 		runStyle = "Sprint",
@@ -731,9 +800,10 @@ function MovementController:_buildObject(spawnedChar: Model?)
 			-- stepper for as long as it runs.
 			if legIK then
 				local turner = object.TurnInPlace
+				-- Swimming paws hang free instead of reaching for the lake bed.
 				legIK:Update({
 					Up = up,
-					Suppressed = suppressed,
+					Suppressed = suppressed or object.Swimming,
 					Pivoting = turner ~= nil and turner:IsStepping(),
 				}, dt)
 			end
@@ -818,6 +888,13 @@ end
 -- Exposed for debug display; will be 1 when no character is loaded.
 function MovementController:GetTurnBrake(): number
 	return self.object and self.object.TurnBrake or 1
+end
+
+-- Horizontal speed the controller handed to the LinearVelocity last frame
+-- (server WalkSpeed x turn brake, or 0 while frozen). Debug display: compare
+-- it with the measured speed to see whether the physics is keeping up.
+function MovementController:GetCommandedSpeed(): number
+	return self.object and self.object.CommandedSpeed or 0
 end
 
 -- Current angle between facing and input-target direction (degrees).

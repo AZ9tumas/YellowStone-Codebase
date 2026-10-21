@@ -89,6 +89,11 @@ local GAIT_TIER = {}
 for tier, name in ipairs(GAIT_ORDER) do
 	GAIT_TIER[name] = tier
 end
+local SWIM_ORDER = MovementStates.SwimOrder
+local SWIM_TIER = {}
+for tier, name in ipairs(SWIM_ORDER) do
+	SWIM_TIER[name] = tier
+end
 
 -- Both edges of the hysteresis band sit ABOVE the slower gait's cruising
 -- speed. A symmetric band around that speed traps deceleration in the faster
@@ -111,8 +116,22 @@ local IDLE_ENTER_SPEED = 0.6
 -- smoothing are what prevent the instantaneous Idle->Walk / Walk->Trot flicker
 -- that raw per-frame velocity produced on slopes.
 --
--- `currentGait` must be one of the five locomotion gaits — passing anything
--- else is a programming error and fails loud.
+-- Walk a ladder from `tier`: climb while above the rung's up bound, then
+-- descend while below the down bound of the rung beneath.
+local function resolveLadder(order: { string }, tier: number, speed: number, upBound, downBound): string
+	while tier < #order and speed > upBound[tier] do
+		tier += 1
+	end
+	while tier > 1 and speed < downBound[tier - 1] do
+		tier -= 1
+	end
+	return order[tier]
+end
+
+-- `currentGait` must be a locomotion gait — passing anything else is a
+-- programming error and fails loud. Coming out of the water (a swim gait),
+-- the climb restarts from Idle, so the first frame on land already lands on
+-- the right band.
 function MovementMath.ResolveGaitFromVelocity(
 	speed: number,
 	currentGait: string,
@@ -120,7 +139,7 @@ function MovementMath.ResolveGaitFromVelocity(
 	trotSpeed: number,
 	runSpeed: number
 ): string
-	local tier = GAIT_TIER[currentGait]
+	local tier = GAIT_TIER[currentGait] or (if SWIM_TIER[currentGait] then 1 else nil)
 	assert(tier, `MovementMath: "{tostring(currentGait)}" is not a locomotion gait`)
 
 	-- upBound[i] = speed to exceed to leave tier i upward;
@@ -138,14 +157,22 @@ function MovementMath.ResolveGaitFromVelocity(
 		runSpeed * (1 + GAIT_DOWN_MARGIN),
 	}
 
-	while tier < #GAIT_ORDER and speed > upBound[tier] do
-		tier += 1
-	end
-	while tier > 1 and speed < downBound[tier - 1] do
-		tier -= 1
-	end
+	return resolveLadder(GAIT_ORDER, tier, speed, upBound, downBound)
+end
 
-	return GAIT_ORDER[tier]
+-- The same banding on the swim ladder (SwimIdle / Swim / SwimFast), with the
+-- same margins around SwimSpeed. Entering the water from a land gait restarts
+-- the climb from SwimIdle.
+function MovementMath.ResolveSwimGaitFromVelocity(speed: number, currentGait: string, swimSpeed: number): string
+	local tier = SWIM_TIER[currentGait] or (if GAIT_TIER[currentGait] then 1 else nil)
+	assert(tier, `MovementMath: "{tostring(currentGait)}" is not a locomotion gait`)
+	return resolveLadder(
+		SWIM_ORDER,
+		tier,
+		speed,
+		{ IDLE_EXIT_SPEED, swimSpeed * (1 + GAIT_UP_MARGIN) },
+		{ IDLE_ENTER_SPEED, swimSpeed * (1 + GAIT_DOWN_MARGIN) }
+	)
 end
 
 -- ===== Spring-damper ==========================================================

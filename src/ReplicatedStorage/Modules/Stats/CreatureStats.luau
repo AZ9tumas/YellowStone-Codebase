@@ -143,6 +143,12 @@ return {
 			["RunSpeed"] = 42,
 			["SprintSpeed"] = 73,
 
+			-- Swimming (see Movement/Swimming). In deep water the server maps
+			-- Idle -> SwimIdle, Walk/Trot -> Swim, Run/Sprint -> SwimFast.
+			["SwimIdleSpeed"] = 0,
+			["SwimSpeed"] = 8,
+			["SwimFastSpeed"] = 14,
+
 			["MaxStamina"] = 100,
 			["RunStaminaDrain"] = 0.5,
 			["SprintStaminaDrain"] = 1,
@@ -150,6 +156,10 @@ return {
 			["TrotStaminaGain"] = 4,
 			["WalkStaminaGain"] = 7,
 			["IdleStaminaGain"] = 15,
+
+			["SwimStaminaDrain"] = 0.5,
+			["SwimFastStaminaDrain"] = 1.5, -- below the penalty threshold it slows toward SwimSpeed
+			["SwimIdleStaminaGain"] = 3,    -- treading water rests a little
 
 			-- When low on health (below threshold), max reduction in speed (penalty).
 			["MaxHealthSpeedPenalty"] = 0.15,
@@ -165,7 +175,9 @@ return {
 			["TrotTurnRate"] = 6,         -- Turning circle when trotting
 			["RunTurnRate"] = 4,          -- Turning circle when running
 			["SprintTurnRate"] = 4,       -- Turning circle when sprinting (overrides BaseTurnRate)
-			["SwimmingTurnRate"] = 4,     -- Turning circle when swimming
+			["SwimIdleTurnRate"] = 3,     -- treading water
+			["SwimTurnRate"] = 2.5,       -- swimming
+			["SwimFastTurnRate"] = 2,     -- swimming hard
 
 			-- Demanded-turn-angle (deg) -> speed multiplier, linearly interpolated
 			-- (see MovementMath.EvaluateTurnBrakeCurve). The wolf plants hard for
@@ -259,10 +271,19 @@ return {
 			-- with { ["Angle"] = 180, ["Duration"] = 1.6 } (PawStepper is retained).
 			["TurnInPlace"] = {
 				["MinAngle"] = 60, -- deg: smaller demands use ordinary steering
+				-- Most speed kept while a turn clip plays (x WalkSpeed, eased like
+				-- the brake curve). The clips plant the paws: 0.05 at a sprint is
+				-- ~3.7 studs/s instead of the curve's 14.6, which slid.
+				["Brake"] = 0.05,
 				["Turns"] = {
 					{ ["Angle"] = 90,  ["Left"] = "Turn90Left", ["Right"] = "Turn90Right" },
 					{ ["Angle"] = 180, ["Left"] = "Turn180Left", ["Right"] = "Turn180Right" },
 				},
+			},
+
+			["Swimming"] = {
+				["FloatDepth"] = 0.3, -- root this fraction of its standing height under the surface
+				["Buoyancy"] = 4,     -- 1/s: how fast the body settles to that height
 			},
 
 			-- Terrain Alignment
@@ -284,6 +305,11 @@ return {
 				["Trot"] = "rbxassetid://80974184092808",
 				["Run"] = "rbxassetid://102193505149804",
 				["Sprint"] = "rbxassetid://128343239222496",
+
+				-- Placeholders: the Idle / Walk / Trot clips until swim clips exist.
+				["SwimIdle"] = "rbxassetid://78565435936342",
+				["Swim"] = "rbxassetid://114896327132532",
+				["SwimFast"] = "rbxassetid://80974184092808",
 
 				-- Authored turn overlays (TurnInPlace above).
 				["Turn90Left"] = "rbxassetid://140093023419940",

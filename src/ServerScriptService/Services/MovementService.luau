@@ -11,6 +11,12 @@
 	  * ramp `Humanoid.WalkSpeed` toward it via Stats.Accelerate (up from 0 on
 	    start; down to 0 on Idle)
 
+	In Terrain water deep enough to float in, the reported land gait is mapped
+	onto the swim ladder (MovementStates.SwimGaitFor) from this service's own
+	water probe, so swim speed and stamina are server decisions too. The
+	verdict is published as the character's `Swimming` attribute for other
+	clients' leg IK.
+
 	Because the client keeps applying `facing.Unit * WalkSpeed`, ramping
 	WalkSpeed down produces a smooth deceleration to a stop on input release,
 	and ramping up produces acceleration from rest — no instant Roblox stop.
@@ -27,6 +33,7 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 local Stats = require(ReplicatedStorage.Modules.Stats)
 local Common = require(ReplicatedStorage.Modules.Common)
 local MovementStates = require(ReplicatedStorage.Modules.Movement.MovementStates)
+local Swimming = require(ReplicatedStorage.Modules.Movement.Swimming)
 
 local MovementService = Knit.CreateService({
 	Name = "MovementService",
@@ -64,6 +71,28 @@ end
 
 -- ===== Speed integration =====================================================
 
+-- The server's own verdict on whether the creature is swimming, published on
+-- the character. Creatures without a Swimming config never swim.
+local function updateSwimming(char: Model, humanoid: Humanoid, info): boolean
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local swimming = false
+	if info.Swimming and root then
+		local surfaceY, bedY = Swimming.Probe(root.Position)
+		swimming = Swimming.Decide(
+			char:GetAttribute("Swimming") == true,
+			surfaceY,
+			bedY,
+			root.Position.Y,
+			Swimming.RootHeight(humanoid, root),
+			info.Swimming
+		)
+	end
+	if char:GetAttribute("Swimming") ~= swimming then
+		char:SetAttribute("Swimming", swimming)
+	end
+	return swimming
+end
+
 local function updateSpeed(player: Player, dt: number)
 	-- Only spawned players have a creature config + State attribute.
 	if not Common.IsSpawned(player) then
@@ -84,6 +113,9 @@ local function updateSpeed(player: Player, dt: number)
 	end
 
 	local info = Common.GetPlayerInfo(player)
+	if updateSwimming(char, humanoid, info) then
+		state = MovementStates.SwimGaitFor[state]
+	end
 
 	-- Target speed for the reported gait. `state` is always a valid gait (set
 	-- by SetState / morph), so a missing speed key is an internal data bug.
@@ -100,15 +132,17 @@ local function updateSpeed(player: Player, dt: number)
 	local drain = info[state .. "StaminaDrain"]
 	if drain then
 		stamina.Value = Stats.ApplyStaminaDrain(stamina.Value, info.MaxStamina, drain * dt)
-		finalSpeed = Stats.GetStaminaPenalizedSpeed(
-			reqSpeed,
-			info.TrotSpeed,
-			info.RunSpeed,
-			info.SprintSpeed,
-			stamina.Value,
-			info.StaminaPenaltyThreshold,
-			state
-		)
+		finalSpeed = if MovementStates.IsSwimming(state)
+			then Stats.GetStaminaPenalizedSwimSpeed(reqSpeed, info.SwimSpeed, stamina.Value, info.StaminaPenaltyThreshold)
+			else Stats.GetStaminaPenalizedSpeed(
+				reqSpeed,
+				info.TrotSpeed,
+				info.RunSpeed,
+				info.SprintSpeed,
+				stamina.Value,
+				info.StaminaPenaltyThreshold,
+				state
+			)
 	else
 		-- A gait with no drain must define a gain (even if 0) — fail loud if not.
 		local gain = info[state .. "StaminaGain"]
@@ -126,13 +160,14 @@ local function updateSpeed(player: Player, dt: number)
 end
 
 -- Report the current locomotion gait. Untrusted: silently reject anything that
--- isn't a known gait (Idle/Walk/Trot/Run/Sprint).
+-- isn't a known land gait (Idle/Walk/Trot/Run/Sprint). Swim gaits are this
+-- service's to choose, never the client's.
 local function onSetState(player: Player, stateName: string)
 	if type(stateName) ~= "string" then
 		return
 	end
 	local def = MovementStates.Definitions[stateName]
-	if not def or def.category ~= MovementStates.Category.Gait then
+	if not def or def.category ~= MovementStates.Category.Gait or def.swimming then
 		return
 	end
 	player:SetAttribute("State", stateName)

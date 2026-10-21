@@ -166,7 +166,8 @@ them as legacy; new work belongs in `Services/` or `Controllers/`.
 ## Turn overlays are interruptible
 
 Wolf uses its authored 90 and 180 turn clips again. `TurnInPlace` follows live
-input and never locks velocity or forces Idle. Releasing input cancels the
+input and never locks velocity or forces Idle; it only caps speed to
+`TurnInPlace.Brake` while a clip plays, so the planted paws don't slide. Releasing input cancels the
 turn; sustained sharp steering loops it. See
 [Turning and the Turn Brake](Turning-and-the-Turn-Brake.md).
 

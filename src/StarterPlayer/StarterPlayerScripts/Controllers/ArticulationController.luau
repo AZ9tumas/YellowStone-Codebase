@@ -264,9 +264,10 @@ function ArticulationController:KnitStart()
 				}, dt)
 			end
 			if entry.legIK then
+				-- The server publishes who is swimming; those paws hang free.
 				entry.legIK:Update({
 					Up = up,
-					Suppressed = suppressed,
+					Suppressed = suppressed or char:GetAttribute("Swimming") == true,
 					Pivoting = not suppressed and isPivoting(entry, up),
 				}, dt)
 			end

@@ -20,6 +20,7 @@
 * [Head Look](Head-Look.md)
 * [Bone Writing](Bone-Writing.md)
 * [Terrain Alignment](Terrain-Alignment.md)
+* [Swimming](Swimming.md)
 * [Animation System](Animation-System.md)
 * [Server Speed Authority](Server-Speed-Authority.md)
 * [Creature Configuration](Creature-Configuration.md)

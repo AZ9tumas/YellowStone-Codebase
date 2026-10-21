@@ -21,6 +21,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- modules
 local modules = ReplicatedStorage:WaitForChild("Modules")
 local commonM = require(modules:WaitForChild("Common"))
+local MovementStates = require(modules:WaitForChild("Movement"):WaitForChild("MovementStates"))
 local Knit = require(ReplicatedStorage.Packages.Knit)
 
 -- ui
@@ -47,6 +48,88 @@ local MaxTurnText: TextLabel = statsFrame:WaitForChild("MaxTurn")
 -- creature has no BodyArticulation config or the labels were never added.
 local SpineText: TextLabel? = statsFrame:FindFirstChild("Spine") :: TextLabel?
 local BankText: TextLabel? = statsFrame:FindFirstChild("Bank") :: TextLabel?
+
+-- ===== Debug panel layout ====================================================
+-- Motion rows. Speed and Accel are MEASURED from the root's physics velocity;
+-- Cmd / Limit / Server are what the code asked for, kept alongside so the two
+-- can be compared. Rows missing from the Studio frame are cloned from Speed,
+-- so the panel is defined here and syncs with Rojo.
+local SpeedText: TextLabel = statsFrame:WaitForChild("Speed")
+local function row(name: string): TextLabel
+	local label = statsFrame:FindFirstChild(name) :: TextLabel?
+	if not label then
+		label = SpeedText:Clone()
+		label.Name = name
+		label.Text = name .. ":"
+		label.Parent = statsFrame
+	end
+	return label
+end
+local AccelText = row("Accel") -- measured change in speed, studs/s^2
+local PeakText = row("Peak") -- largest measured rise / drop over PEAK_WINDOW
+local CmdText = row("Cmd") -- controller's commanded speed, and the server's WalkSpeed
+local LimitText = row("Limit") -- configured Acceleration / Deceleration
+local ServerText = row("Server") -- gait the server is driving speed for
+
+-- Smaller, wider rows so the whole panel fits on screen and each row holds
+-- about 20 characters. Rows grow downward if their text wraps (Spine, Bank).
+local PANEL_WIDTH = 240
+local ROW_HEIGHT = 26
+local ROW_TEXT_SIZE = 18
+local ROW_ORDER = {
+	"Speed", "Accel", "Peak", "Cmd", "Limit", "Server",
+	"State", "Break", "Angle", "TurnRate", "TurnRPS", "MaxTurn", "CamRate",
+	"Stamina", "Health", "Thirst", "Hunger", "Attack",
+	"Spine", "Bank",
+}
+statsFrame.AutomaticSize = Enum.AutomaticSize.Y
+statsFrame.Size = UDim2.fromOffset(PANEL_WIDTH, 0)
+for order, name in ROW_ORDER do
+	local label = statsFrame:FindFirstChild(name)
+	if label and (label:IsA("TextLabel") or label:IsA("TextBox")) then
+		label.LayoutOrder = order
+		label.Size = UDim2.fromOffset(PANEL_WIDTH - 5, ROW_HEIGHT)
+		label.AutomaticSize = Enum.AutomaticSize.Y
+		label.TextSize = ROW_TEXT_SIZE
+	end
+end
+
+-- ===== Measured motion =======================================================
+-- Acceleration is the change in measured horizontal speed across
+-- ACCEL_WINDOW: long enough to swallow single-step physics jitter, short
+-- enough that a burst lasting a few tenths of a second still shows. Peak
+-- holds the extremes so a burst can be read after it is over.
+local ACCEL_WINDOW = 0.1 -- s
+local PEAK_WINDOW = 1 -- s
+local speedSamples: { { t: number, v: number } } = {} -- oldest first
+local accelSamples: { { t: number, a: number } } = {}
+
+local function resetMotion()
+	table.clear(speedSamples)
+	table.clear(accelSamples)
+end
+
+-- Records this frame's speed; returns (accel, peak rise, peak drop).
+local function measureMotion(now: number, speed: number): (number, number, number)
+	table.insert(speedSamples, { t = now, v = speed })
+	-- Keep exactly one sample at or before the window start as the baseline.
+	while speedSamples[2] and speedSamples[2].t <= now - ACCEL_WINDOW do
+		table.remove(speedSamples, 1)
+	end
+	local base = speedSamples[1]
+	local accel = if now > base.t then (speed - base.v) / (now - base.t) else 0
+
+	table.insert(accelSamples, { t = now, a = accel })
+	while accelSamples[1].t < now - PEAK_WINDOW do
+		table.remove(accelSamples, 1)
+	end
+	local rise, drop = 0, 0
+	for _, sample in accelSamples do
+		rise = math.max(rise, sample.a)
+		drop = math.max(drop, -sample.a)
+	end
+	return accel, rise, drop
+end
 
 local movementController -- populated once Knit.OnStart fires
 
@@ -174,16 +257,33 @@ local function updateStats()
 		if not hmr then return end
 		statsFrame.Health.Text = "Health: " .. tostring(char.Humanoid.Health):match("^(%d+)")
 
-		-- Speed = actual horizontal physics velocity (AssemblyLinearVelocity), so it
-		-- reflects the real movement after the client-side turn brake, unlike the
-		-- server's WalkSpeed target.
+		local info = if commonM.IsSpawned(player) then commonM.GetPlayerInfo(player) else nil
+
+		-- Speed / Accel / Peak = MEASURED horizontal physics velocity
+		-- (AssemblyLinearVelocity) and its rate of change, so they show what the
+		-- body really did, whatever the code asked for.
 		local av = hmr.AssemblyLinearVelocity
-		statsFrame.Speed.Text = string.format("Speed: %.1f", Vector3.new(av.X, 0, av.Z).Magnitude)
+		local speed = Vector3.new(av.X, 0, av.Z).Magnitude
+		local accel, rise, drop = measureMotion(os.clock(), speed)
+		SpeedText.Text = string.format("Speed: %.1f", speed)
+		AccelText.Text = string.format("Accel: %+.0f", accel)
+		PeakText.Text = string.format("Peak: +%.0f/-%.0f", rise, drop)
+
+		-- Limit = the creature's configured Acceleration / Deceleration: the
+		-- server's WalkSpeed ramp. Server = the gait it ramps toward (the
+		-- reported intent, mapped onto the swim ladder in water).
+		LimitText.Text = if info then string.format("Limit: +%g/-%g", info.Acceleration, info.Deceleration) else "Limit: —"
+		local intent = player:GetAttribute("State")
+		local serverGait = if intent and char:GetAttribute("Swimming") then MovementStates.SwimGaitFor[intent] else intent
+		ServerText.Text = "Server: " .. tostring(serverGait or "—")
 
 		-- Break = turn-speed penalty · Angle = facing-to-input gap (deg)
 		-- TurnRate = turnRPS / maxTurn (raw) · TurnRPS = turn rate (rad/s)
 		-- CamRate = camera yaw rate (rad/s) · MaxTurn = gait's turn cap (rad/s)
 		if movementController then
+			-- Cmd = speed the controller handed the physics (WalkSpeed x Break) ·
+			-- WS = the server's WalkSpeed
+			CmdText.Text = string.format("Cmd: %.1f WS: %.1f", movementController:GetCommandedSpeed(), char.Humanoid.WalkSpeed)
 			BreakText.Text = string.format("Break: %.2f", movementController:GetTurnBrake())
 			AngleText.Text = string.format("Angle: %.1f", movementController:GetTurnAngle())
 			TurnRateText.Text = string.format("TurnRate: %.2f", movementController:GetTurnRateFraction())
@@ -242,8 +342,7 @@ local function updateStats()
 			end
 		end
 
-		if commonM.IsSpawned(player) then
-			local info = commonM.GetPlayerInfo(player)
+		if info then
 			if info.MaxStamina then
 				statsFrame.Stamina.Text = "Stamina: " .. tostring(staminaValue.Value * info.MaxStamina):match("^(%d+)")
 			end
@@ -264,6 +363,7 @@ player.CharacterAdded:Connect(function(c)
 	end
 
 	char = c
+	resetMotion()
 	conn = RunService.RenderStepped:Connect(updateStats)
 end)
 
