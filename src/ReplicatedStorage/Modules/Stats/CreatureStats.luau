@@ -170,8 +170,8 @@ return {
 			["Deceleration"] = 60,
 
 			["BaseTurnRate"] = 10,        -- turning circle when stopped
-			["IdleTurnRate"] = 10,        -- Turning circle when idle (overrides BaseTurnRate)
-			["WalkTurnRate"] = 6,         -- Turning circle when walking
+			["IdleTurnRate"] = 5,        -- Turning circle when idle (overrides BaseTurnRate)
+			["WalkTurnRate"] = 3,         -- Turning circle when walking
 			["TrotTurnRate"] = 6,         -- Turning circle when trotting
 			["RunTurnRate"] = 4,          -- Turning circle when running
 			["SprintTurnRate"] = 4,       -- Turning circle when sprinting (overrides BaseTurnRate)
@@ -205,7 +205,7 @@ return {
 					{ -- rear falls behind the chest, then swings through
 						["Name"] = "Spine",
 						["Bones"] = { "Back.001", "Back.002", "Lowe Back" },
-						["Weights"] = { 0.25, 0.35, 0.40 }, -- lumbar bends most
+						["Weights"] = { 0.25, 0.40, 0.50 }, -- lumbar bends most
 						["MaxYaw"] = 22,
 						["Frequency"] = 2.5,
 						["Damping"] = 0.7,   -- < 1: slight overshoot = follow-through
@@ -270,7 +270,7 @@ return {
 			-- To experiment with procedural 180 footwork again, replace its row
 			-- with { ["Angle"] = 180, ["Duration"] = 1.6 } (PawStepper is retained).
 			["TurnInPlace"] = {
-				["MinAngle"] = 60, -- deg: smaller demands use ordinary steering
+				["MinAngle"] = 90, -- deg: smaller demands use ordinary steering
 				-- Most speed kept while a turn clip plays (x WalkSpeed, eased like
 				-- the brake curve). The clips plant the paws: 0.05 at a sprint is
 				-- ~3.7 studs/s instead of the curve's 14.6, which slid.
