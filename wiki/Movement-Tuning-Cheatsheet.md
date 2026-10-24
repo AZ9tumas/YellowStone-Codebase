@@ -93,7 +93,7 @@ Turns = {
 A one-second clip takes about 0.77 seconds at `1.3`. The rotation cap scales
 with it, but a restrictive gait cap can still prevent full alignment in one
 cycle. Faster alignment can shorten the time spent braking; this setting does
-not change the brake's speed floor. Both Wolf rows ship at `1`. Set the value
+not change the brake's speed floor. Wolf uses `1` for 90° and `1.3` for 180°. Set the value
 back to `1`, or remove it, to restore the previous pace.
 
 ## Swimming (optional, currently Wolf)
@@ -185,7 +185,7 @@ not locomotion speed or braking.
 | Turn rate Idle·Walk·Trot·Run·Sprint (rad/s) | 4.5 everywhere (Base only) | 10 · 6 · 6 · 4 · 4 | 5 · 2 · 5 · 4 · 4 |
 | Brake curve (deg→×) | 5→1, 40→.45, 75→.25, 180→.25 | 5→1, 45→.42, 75→.28, 180→.28 | 10→1, 45→.6, 90→.25, 180→.2 |
 | **Nominal full-sprint minimum from turn braking** | 55 × .25 ≈ **13.8** | 73 × .28 ≈ **20.4** | 73 × .20 ≈ **14.6** (≈3.7 while a turn clip plays) |
-| TurnInPlace | — | — | MinAngle 90; Brake 0.05 (≈3.7 at sprint); 90° + 180° clips, each with SpeedMultiplier 1 |
+| TurnInPlace | — | — | MinAngle 90; Brake 0.05 (≈3.7 at sprint); SpeedMultiplier 1 for 90° and 1.3 for 180° |
 | Body lean | whole-body tilt 20° | whole-body tilt 30° | chest bank 18° (BodyArticulation) |
 
 ## Quick knobs for common feel problems

@@ -275,9 +275,11 @@ return {
 				-- the brake curve). The clips plant the paws: 0.05 at a sprint is
 				-- ~3.7 studs/s instead of the curve's 14.6, which slid.
 				["Brake"] = 0.05,
+				-- SpeedMultiplier scales playback, rotation timing and the turn's
+				-- rate cap together. 1 = current pace; 1.3 = 30% faster; omitted = 1.
 				["Turns"] = {
-					{ ["Angle"] = 90,  ["Left"] = "Turn90Left", ["Right"] = "Turn90Right" },
-					{ ["Angle"] = 180, ["Left"] = "Turn180Left", ["Right"] = "Turn180Right" },
+					{ ["Angle"] = 90,  ["Left"] = "Turn90Left", ["Right"] = "Turn90Right", ["SpeedMultiplier"] = 1 },
+					{ ["Angle"] = 180, ["Left"] = "Turn180Left", ["Right"] = "Turn180Right", ["SpeedMultiplier"] = 1.3 },
 				},
 			},
 

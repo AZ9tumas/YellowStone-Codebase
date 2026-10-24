@@ -97,6 +97,9 @@ local function withTurnSpeeds(ninety, oneEighty)
 	return tuned
 end
 
+-- Baseline timing checks use authored speed, independently of current animal tuning.
+config = withTurnSpeeds(1, 1)
+
 for _, fps in { 30, 60, 144 } do
 	local dt = 1 / fps
 	local turner, ac, s = fixture(config)
