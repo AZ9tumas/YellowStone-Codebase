@@ -16,6 +16,7 @@ while steering still feels instant:
 | Facing / direction | **Client** | `AlignOrientation.CFrame`, simulated in `MovementController` |
 | Turn braking | **Client** | Multiplier on the applied velocity (can only *reduce* speed) |
 | Locomotion intent | **Client → Server** | `SetState` remote, validated against known gaits |
+| Camera head aim | **Owner → Server → Observers** | `HeadLookService.SetDirection` validates and shares a direction; clients apply per-creature head/neck limits |
 | Visual gait / animation | **Client** | Derived from measured velocity, never networked |
 
 Every frame the client applies

@@ -1,15 +1,21 @@
-# Head Look (attention)
+# Head Look (camera tracking and attention)
 
-The creature turns its head toward whatever is worth looking at — the nearest
-other creature — while the gait animation keeps playing underneath, and
-relaxes back onto the animated pose when there is nothing around.
+With `CameraTracking = true`, the creature's neck and head follow its owner's
+camera direction, including left/right yaw and up/down pitch. Wolf enables
+this mode. Camera zoom does not affect the aim: the input is the camera's
+look direction, not its position or distance from the creature.
+
+With `CameraTracking = false` or omitted, the previous automatic attention
+mode remains available: look at the nearest other creature and relax back
+onto the animated pose when none is nearby.
 
 This is inverse kinematics in the same sense [Leg IK](Leg-IK.md) is: a
-world-space point goes in, the joint angles that aim at it come out.
+world-space direction or point goes in, the joint angles that aim at it come out.
 
 | Module | Path |
 |---|---|
 | `HeadLook` | `src/ReplicatedStorage/Modules/Movement/HeadLook.luau` |
+| `HeadLookService` | `src/ServerScriptService/Services/HeadLookService.luau` — validates and shares camera look direction |
 | `CreatureStats[..].HeadLook` | Per-creature config. Absent = feature off |
 
 ---
@@ -17,10 +23,16 @@ world-space point goes in, the joint angles that aim at it come out.
 ## 1. It composes with the neck, it does not replace it
 
 [Body Articulation](Body-Articulation.md)'s `Neck` chain leads into a **turn**
-— where the creature is steering. `HeadLook` aims at a **thing**. They are
-different behaviours and both are bounded, so they simply add: both write the
-neck through the shared [BoneWriter](Bone-Writing.md), and the tuned `Neck`
-chain keeps `Neck.001` and `Neck.002` exactly as it had them.
+— where the creature is steering. `HeadLook` then corrects that pose toward
+the camera direction or attention target. Both write through the shared
+[BoneWriter](Bone-Writing.md); the body, gait, movement direction and turn
+timing remain controlled by their existing systems.
+
+Camera aiming works while stationary and moving. It respects `MaxYaw` and
+`MaxPitch`, slews at `Response`, and fades out during movement-freezing
+actions, death, or when no camera direction is available. The smoothed aim
+is re-clamped against the current body orientation so a sharp body turn
+cannot leave the head pointing beyond its limits.
 
 ## 2. Sign safety
 
@@ -42,44 +54,64 @@ the head aims exactly where 1.0 on the head would, spread over a nicer curve.
 It does move the head's origin slightly, so a very close target is aimed at a
 little loosely — irrelevant at the ranges this runs at.
 
-## 3. Target selection needs no replication
+## 3. Camera direction and multiplayer
 
 `Bone.Transform` does not replicate, so every client runs this for every
-creature it can see. Target selection is therefore derived only from state all
-clients already share — who is standing where — so **everyone sees the same
-creature look at the same thing**, with zero network traffic and no
-client-authority question.
+creature it can see. The owner aims immediately from `CurrentCamera` and
+publishes changes at most 10 times per second through
+`HeadLookService.SetDirection`. Changes under 0.5° are skipped, with a
+0.5-second refresh to recover the final pose if an update was rate-limited.
+
+The server accepts only the sender's current character, checks the feature
+is enabled, rejects invalid vectors, normalises valid directions and limits
+update frequency. It writes `HeadLookDirection` on that character. Observers
+read this replicated attribute and smooth the head locally, applying the same
+joint limits. Late joiners and streamed-in creatures receive the latest pose.
+An absent direction fades out; observers never substitute their own cameras.
+
+`Signals.Direction` takes priority over an explicit `Signals.Target` point.
+Camera tracking does not auto-acquire creatures when a direction is missing.
+
+## 4. Automatic attention
 
 `HeadLook.FindTarget` picks the nearest other player's creature inside
 `Radius` and inside the `Cone` half-angle, refreshed 4×/second; the aim itself
 slews every frame. A caller may pass `Signals.Target` to override this with an
-explicit world point (prey, a scripted beat) — the self-acquire only runs when
-that is absent.
+explicit world point (prey, a scripted beat). Self-acquisition only runs when
+`CameraTracking` is off and no explicit point or direction is supplied.
+This mode uses positions all clients already share and needs no camera updates.
 
 Losing a target does not snap: `strength` eases to 0 and the head relaxes back
 onto whatever the animation is doing.
 
-## 4. Configuration
+## 5. Configuration
 
 ```lua
 ["HeadLook"] = {
+    ["CameraTracking"] = true,    -- false restores nearby-creature attention
     ["Bones"] = { "Neck.002", "Head" },
     ["Weights"] = { 0.4, 0.6 },   -- head carries more than the neck
     ["Aim"] = "Nose",             -- marks "forward" without assuming a bone axis
     ["MaxYaw"] = 55,              -- deg off the body's facing
     ["MaxPitch"] = 35,
     ["Response"] = 6,             -- 1/s, aim slew rate
-    ["Radius"] = 60,              -- studs
-    ["Cone"] = 120,               -- deg half-angle
+    ["Radius"] = 60,              -- studs; automatic attention only
+    ["Cone"] = 120,               -- deg half-angle; automatic attention only
 },
 ```
 
 `Bones` is the chain that shares the swing, neck → head. `Aim` is only ever
 **read**, never written, so it may well be a bone another layer owns.
 
-## 5. Measured behaviour
+## 6. Validation
 
-Driven with explicit targets on an isolated rig:
+Run `lune run tests/headtracking-regressions.luau` for local regression checks
+of camera yaw/pitch, both bones sharing the aim, body-relative limits, smooth
+reversals, suppression, automatic attention and the server's input handling.
+These use a small hierarchical rig and fake network signals; multiplayer
+visual verification still requires a Studio play session.
+
+Earlier measurements with explicit targets on an isolated rig:
 
 | Asked | Result |
 |---|---|
@@ -88,11 +120,12 @@ Driven with explicit targets on an isolated rig:
 | yaw +100°, pitch +60° (outside the cone) | clamped to exactly +55° / +35° |
 | suppressed | returns to the rest aim to 0.01°, bit-for-bit |
 
-## 6. Traps
+## 7. Traps
 
 | Trap | Guard |
 |---|---|
 | Assuming a bone's local axis is "forward" | Aim is a line between two joints; only swing-onto rotations are used |
-| Double-counting the neck's turn lead | Different behaviours, both clamped; they are meant to add |
+| Double-counting the neck's turn lead | HeadLook reads the already-articulated pose and corrects it toward the bounded aim |
 | Head snapping when a target appears or leaves | `strength` eases in/out; the aim direction is seeded on first sighting |
-| Per-client disagreement about what a creature is looking at | Target derived only from shared positions, never from local input |
+| Remote creatures following the viewer's camera | Only the owner publishes a direction; observers read the character attribute |
+| Body turning past the smoothed head direction | Clamp the smoothed direction against the current body basis each frame |

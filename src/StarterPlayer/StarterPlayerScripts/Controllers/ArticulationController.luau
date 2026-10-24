@@ -33,10 +33,9 @@
 	                no turn clip playing — a stepped standstill turn, which
 	                replicates only as the root turning. The paws then step
 	                exactly as on the owner's screen.
-	  Otherwise LegIK and HeadLook need no remote-specific signal: the legs
-	  probe the terrain themselves, and HeadLook picks its target from
-	  positions every client already shares, so a creature looks at the same
-	  thing on every screen.
+	  HeadLook    : the owner's camera direction, shared by HeadLookService;
+	                automatic attention still uses other creatures' positions.
+	  The legs probe the terrain themselves.
 
 	Creatures beyond MAX_DISTANCE from the camera are suppressed: their gain
 	eases to 0, their bones are released, and only their springs keep ticking.
@@ -272,7 +271,12 @@ function ArticulationController:KnitStart()
 				}, dt)
 			end
 			if entry.headLook then
-				entry.headLook:Update({ Facing = look, Up = up, Suppressed = suppressed }, dt)
+				entry.headLook:Update({
+					Facing = look,
+					Up = up,
+					Direction = if entry.headLook.cameraTracking then char:GetAttribute(HeadLook.DIRECTION_ATTRIBUTE) else nil,
+					Suppressed = suppressed or entry.humanoid.Health <= 0,
+				}, dt)
 			end
 			entry.writer:EndFrame()
 		end

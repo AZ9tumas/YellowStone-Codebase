@@ -83,7 +83,7 @@ lean is then applied on the chest bone instead (see below).
 |---|---|
 | `BodyArticulation` | **Optional.** Procedural spine bend / neck lead / tail whip / chest bank during turns. Absent = off |
 | `LegIK` | **Optional.** Terrain foot planting. Absent = off. Four bone triples and a body bone; every distance is a fraction of leg length, so there are no stud values to retune per creature (see [Leg IK](Leg-IK.md)) |
-| `HeadLook` | **Optional.** Head aims at the nearest creature. Absent = off (see [Head Look](Head-Look.md)) |
+| `HeadLook` | **Optional.** Neck/head follow the owner's camera when `CameraTracking = true`, otherwise aim at the nearest creature. Absent = off (see [Head Look](Head-Look.md)) |
 
 The block is documented key-by-key, with a tuning table, in
 [Body Articulation](Body-Articulation.md). Bone names and weights are asserted

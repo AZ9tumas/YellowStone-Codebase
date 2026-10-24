@@ -37,7 +37,7 @@ Code both sides need. Nothing here may touch a `Player`'s input or a remote.
 | `Stats/MovementMath.luau` | Pure math: brake curve evaluation, gait banding, acceleration, spring-damper. Numbers in, numbers out. |
 | `Movement/BodyArticulation.luau` | Procedural spine/neck/tail bend and chest bank on top of the animation; runs on every client (see [Body Articulation](Body-Articulation.md)) |
 | `Movement/LegIK.luau` | Terrain foot planting — two-bone IK onto a probed contact point (see [Leg IK](Leg-IK.md)) |
-| `Movement/HeadLook.luau` | Head aims at the nearest creature (see [Head Look](Head-Look.md)) |
+| `Movement/HeadLook.luau` | Neck/head follow the camera or attend to nearby creatures (see [Head Look](Head-Look.md)) |
 | `Movement/BoneWriter.luau` | Shared `Bone.Transform` bookkeeping + rig lookup for all three layers (see [Bone Writing](Bone-Writing.md)) |
 | `Stats/StaminaMath.luau` | Pure math: stamina drain/gain, health-based speed penalties. |
 | `Stats/init.luau` | Aggregator — flattens the three above so callers write `Stats.Accelerate(...)`. |
@@ -52,6 +52,7 @@ Code both sides need. Nothing here may touch a `Player`'s input or a remote.
 | `KnitServerInit.server.luau` | Boots Knit; registers everything in `Services/`. |
 | `Services/SpawnService.luau` | Morphs a player into a creature: clones the model, attaches body movers, builds the animation folder, places them on the spawn. Also enforces the physics contract (collidable, massive root; massless, non-collidable cosmetics) and runs the out-of-world fall guard — see [Known Issues](Known-Issues.md) |
 | `Services/MovementService.luau` | **The speed authority.** Ramps `Humanoid.WalkSpeed` toward the client's reported intent; applies stamina and health penalties. |
+| `Services/HeadLookService.luau` | Validates and shares the owner's camera look direction for other clients' head/neck aiming. |
 | `Services/CombatService.luau` | Attack damage resolution. |
 | `Services/LoadingService.luau` | Gates spawning until the client reports it's loaded. |
 | `DayNightHandler.server.luau`, `FoodSourceControl/`, `FootstepSFXServer/`, `HealthModifier.server.luau`, `WaterPart *.server.luau` | Older standalone systems, not yet ported to Knit services. |

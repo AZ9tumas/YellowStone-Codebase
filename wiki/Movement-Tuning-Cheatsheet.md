@@ -159,10 +159,11 @@ These settings change bone poses, not root speed or steering limits.
 | `LegIK.Legs[].Name` / `Upper` / `Mid` / `Foot` | Leg label and hip/shoulder, knee/elbow, and paw bone mappings. Define which joints the ground-contact solver moves. |
 | `LegIK.BodyBone` | Whole-body bone the solver can lower to help the paws reach the ground. |
 | `HeadLook.Bones` / `Weights` / `Aim` | Neck/head bones, shares of rotation, and the bone marking where the nose points. |
+| `HeadLook.CameraTracking` | `true` follows the owner's camera direction and shares it with other players. `false` or omitted restores automatic nearby-creature attention. Enabled for Wolf. |
 | `HeadLook.MaxYaw` / `MaxPitch` | Limits on sideways and vertical head aim, in degrees. These are active settings, unlike `MaxTerrainPitch/Roll`. |
 | `HeadLook.Response` | How quickly head aim follows its target, per second. |
-| `HeadLook.Radius` | Maximum target-search distance, in studs. |
-| `HeadLook.Cone` | Search cone's half-angle from body facing, in degrees. Does not override the head's rotation limits. |
+| `HeadLook.Radius` | Maximum target-search distance, in studs, for automatic attention. Unused in camera tracking mode. |
+| `HeadLook.Cone` | Search cone's half-angle from body facing, in degrees, for automatic attention. Unused in camera tracking mode; `MaxYaw`/`MaxPitch` still limit head rotation. |
 
 Optional LegIK overrides, currently omitted from the animal rows:
 `AlignFeet` enables paw tilt; `MaxFootTilt` caps it in degrees; `Response`

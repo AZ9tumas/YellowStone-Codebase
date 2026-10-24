@@ -1,16 +1,15 @@
 --[[
 	HeadLook
 
-	Attention: the creature turns its head toward whatever is worth looking at
-	— the nearest other creature — while the gait animation keeps playing
-	underneath, and relaxes back onto the animated pose when there is nothing
-	around.
+	Head/neck aiming over the live gait pose. CameraTracking creatures follow
+	the owner's camera direction; others attend to the nearest creature.
+	With no aim, the layer relaxes back onto the animated pose.
 
-	This is inverse kinematics in the same sense LegIK is: a world-space point
-	goes in and the joint angles that aim at it come out. It composes with
+	This is inverse kinematics in the same sense LegIK is: a world direction
+	or point goes in and the joint angles that aim at it come out. It composes with
 	BodyArticulation's neck rather than replacing it: that chain leads into a
-	TURN (where the creature is steering), this one aims at a THING. Both write
-	the neck through the shared BoneWriter, and they simply add.
+	TURN (where the creature is steering), this one corrects the resulting pose
+	toward a look direction or target. Both use the shared BoneWriter.
 
 	Sign safety: the only rotation this performs is "swing direction A onto
 	direction B about A x B", the same primitive LegIK's hip uses and the one
@@ -30,9 +29,8 @@
 	aimed at a little loosely — irrelevant at the ranges this runs at.
 
 	Bone.Transform does not replicate; every client runs this for every
-	creature it can see. Target selection is deliberately derived from state
-	all clients share (who is standing where), so everyone sees the same
-	creature look at the same thing with no network traffic.
+	creature it can see. HeadLookService shares the owner's camera direction
+	for observers; automatic attention uses positions all clients already know.
 ]]
 
 local Players = game:GetService("Players")
@@ -52,6 +50,12 @@ local DEF_RESPONSE = 6 -- 1/s, how fast the aim slews
 local DEF_RADIUS = 60 -- studs
 local DEF_CONE = 120 -- deg, half-angle the creature will turn its head within
 
+-- Shared by the local publisher and server/observer drivers.
+HeadLook.DIRECTION_ATTRIBUTE = "HeadLookDirection"
+HeadLook.SEND_INTERVAL = 0.1 -- at most 10 updates/s; bone smoothing is per-frame
+HeadLook.KEEPALIVE_INTERVAL = 0.5 -- retry the final pose if a rate-limited update was dropped
+HeadLook.CHANGE_COS = math.cos(math.rad(0.5)) -- ignore sub-degree camera jitter on the network
+
 export type Config = {
 	Bones: { string }, -- neck..head, in that order; they share the swing
 	Aim: string, -- bone further down the skull that marks "forward"
@@ -59,6 +63,7 @@ export type Config = {
 	MaxYaw: number, -- deg from the body's facing
 	MaxPitch: number, -- deg
 	Response: number?, -- 1/s, aim slew rate
+	CameraTracking: boolean?, -- true: owner's camera; false/nil: nearest creature
 	Radius: number?, -- studs; how far away a target may be
 	Cone: number?, -- deg half-angle; targets outside are ignored
 }
@@ -66,7 +71,8 @@ export type Config = {
 export type Signals = {
 	Facing: Vector3, -- the root's LookVector
 	Up: Vector3, -- the root's UpVector
-	Target: Vector3?, -- explicit world point to aim at; omit to self-acquire
+	Target: Vector3?, -- world point; omit to self-acquire when CameraTracking is off
+	Direction: Vector3?, -- world look direction; takes precedence over Target
 	Suppressed: boolean?, -- resting / frozen / far away: eases out and lets go
 }
 
@@ -88,6 +94,7 @@ export type HeadLook = typeof(setmetatable(
 		maxYaw: number,
 		maxPitch: number,
 		response: number,
+		cameraTracking: boolean,
 		radius: number,
 		cosCone: number,
 		dir: Vector3?, -- smoothed aim direction, world
@@ -96,6 +103,7 @@ export type HeadLook = typeof(setmetatable(
 		acquired: Vector3?,
 		yaw: number,
 		pitch: number,
+		hasTarget: boolean,
 	},
 	HeadLook
 ))
@@ -127,6 +135,7 @@ function HeadLook.new(character: Model, config: Config, writer: BoneWriter.BoneW
 	assert(writer, "HeadLook: a BoneWriter is required")
 	assert(type(config.Bones) == "table" and #config.Bones > 0, "HeadLook: config has no Bones")
 	assert(type(config.Aim) == "string", "HeadLook: config needs an Aim bone")
+	assert(config.CameraTracking == nil or type(config.CameraTracking) == "boolean", "HeadLook: CameraTracking must be boolean")
 	assert(
 		type(config.MaxYaw) == "number" and type(config.MaxPitch) == "number",
 		"HeadLook: config needs numeric MaxYaw and MaxPitch"
@@ -168,6 +177,7 @@ function HeadLook.new(character: Model, config: Config, writer: BoneWriter.BoneW
 	self.maxYaw = math.rad(config.MaxYaw)
 	self.maxPitch = math.rad(config.MaxPitch)
 	self.response = config.Response or DEF_RESPONSE
+	self.cameraTracking = config.CameraTracking == true
 	self.radius = config.Radius or DEF_RADIUS
 	self.cosCone = math.cos(math.rad(config.Cone or DEF_CONE))
 	self.dir = nil
@@ -176,10 +186,32 @@ function HeadLook.new(character: Model, config: Config, writer: BoneWriter.BoneW
 	self.acquired = nil
 	self.yaw = 0
 	self.pitch = 0
+	self.hasTarget = false
 	return self
 end
 
 -- ===== target selection ======================================================
+
+-- Camera directions also cross a remote boundary. Reject malformed vectors
+-- before they can enter bone math or replicated character attributes.
+function HeadLook.UnitDirection(direction: any): Vector3?
+	if typeof(direction) ~= "Vector3" then
+		return nil
+	end
+	local length = direction.Magnitude
+	if not (length > EPS and length < math.huge) then
+		return nil
+	end
+	return direction / length
+end
+
+local function clampDirection(d: Vector3, f: Vector3, right: Vector3, up: Vector3, maxYaw: number, maxPitch: number): (Vector3, number, number)
+	local x, y, z = d:Dot(f), d:Dot(right), d:Dot(up)
+	local yaw = math.clamp(math.atan2(y, x), -maxYaw, maxYaw)
+	local pitch = math.clamp(math.atan2(z, math.sqrt(x * x + y * y)), -maxPitch, maxPitch)
+	local cp = math.cos(pitch)
+	return f * (cp * math.cos(yaw)) + right * (cp * math.sin(yaw)) + up * math.sin(pitch), yaw, pitch
+end
 
 -- The nearest other player's creature inside the radius and the cone. Derived
 -- only from positions every client already has, so it needs no replication
@@ -236,8 +268,9 @@ function HeadLook:Update(signals: Signals, dt: number)
 	end
 	aimDir = aimDir.Unit
 
+	local direction = HeadLook.UnitDirection(signals.Direction)
 	local target = signals.Target
-	if target == nil and not signals.Suppressed then
+	if direction == nil and target == nil and not self.cameraTracking and not signals.Suppressed then
 		self.clock += dt
 		if self.clock >= ACQUIRE_INTERVAL then
 			self.clock = 0
@@ -247,20 +280,13 @@ function HeadLook:Update(signals: Signals, dt: number)
 	end
 
 	local wanted: Vector3? = nil
-	if target and not signals.Suppressed then
-		local d = target - pivotPos
-		if d.Magnitude > EPS then
-			d = d.Unit
-			-- Clamp inside the cone by REBUILDING the direction from the body
-			-- basis: no rotation, so no sign to get wrong.
-			local x, y, z = d:Dot(f), d:Dot(right), d:Dot(up)
-			local yaw = math.clamp(math.atan2(y, x), -self.maxYaw, self.maxYaw)
-			local pitch = math.clamp(math.atan2(z, math.sqrt(x * x + y * y)), -self.maxPitch, self.maxPitch)
-			local cp = math.cos(pitch)
-			wanted = f * (cp * math.cos(yaw)) + right * (cp * math.sin(yaw)) + up * math.sin(pitch)
-			self.yaw, self.pitch = yaw, pitch
-		end
+	if not direction and target then
+		direction = HeadLook.UnitDirection(target - pivotPos)
 	end
+	if direction and not signals.Suppressed then
+		wanted = clampDirection(direction, f, right, up, self.maxYaw, self.maxPitch)
+	end
+	self.hasTarget = wanted ~= nil
 
 	local alpha = 1 - math.exp(-self.response * dt)
 	if wanted then
@@ -268,6 +294,15 @@ function HeadLook:Update(signals: Signals, dt: number)
 		-- snap round from a stale direction.
 		local dir = if self.dir then self.dir + (wanted - self.dir) * alpha else wanted
 		self.dir = if dir.Magnitude > EPS then dir.Unit else wanted
+	end
+	if self.dir then
+		-- The body may have turned since last frame. Bound the retained world
+		-- direction during active aiming AND fade-out, before applying its gain.
+		local dir, yaw, pitch = clampDirection(self.dir, f, right, up, self.maxYaw, self.maxPitch)
+		self.dir = dir
+		if wanted then
+			self.yaw, self.pitch = yaw, pitch
+		end
 	end
 	self.strength += ((if wanted then 1 else 0) - self.strength) * (1 - math.exp(-STRENGTH_RESPONSE * dt))
 	if not wanted then
@@ -302,7 +337,7 @@ function HeadLook:GetDebug(): Debug
 	return {
 		Yaw = math.deg(self.yaw),
 		Pitch = math.deg(self.pitch),
-		HasTarget = self.acquired ~= nil,
+		HasTarget = self.hasTarget,
 		Gain = self.strength,
 	}
 end

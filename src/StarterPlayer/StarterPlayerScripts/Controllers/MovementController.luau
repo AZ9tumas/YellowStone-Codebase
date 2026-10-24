@@ -47,7 +47,7 @@
 	  * BodyArticulation bends the spine/neck/tail and banks the chest from the
 	    facing + demanded heading this controller already computes.
 	  * LegIK plants the paws on the terrain under them.
-	  * HeadLook aims the head at the nearest creature.
+	  * HeadLook follows the camera, or attends to nearby creatures by config.
 	They share one BoneWriter and run in that order on a single PreSimulation
 	connection, after the Animator — the RenderStepped sim loop above never
 	touches bones. Order matters: the legs and head correct the pose the spine
@@ -783,6 +783,9 @@ function MovementController:_buildObject(spawnedChar: Model?)
 	-- while the body was still catching up. object.TargetDir (the raw input
 	-- intent) is what the neck anticipates toward.
 	if articulation or legIK or headLook then
+		-- Per-life publication state; the Trove owns this callback and its data.
+		local lookSendClock = HeadLook.KEEPALIVE_INTERVAL
+		local lastLookDirection: Vector3? = nil
 		-- PreSimulation passes the physics step's delta time as its only argument.
 		trove:Connect(RunService.PreSimulation, function(dt: number)
 			if self.object ~= object then
@@ -826,10 +829,29 @@ function MovementController:_buildObject(spawnedChar: Model?)
 				}, dt)
 			end
 			if headLook then
+				local lookDirection: Vector3? = nil
+				local lookSuppressed = suppressed or humanoid.Health <= 0
+				if headLook.cameraTracking then
+					-- Direction, not camera position: zooming should not pull the
+					-- head toward the viewer or change its aim through parallax.
+					local currentCamera = workspace.CurrentCamera
+					if currentCamera and not lookSuppressed then
+						lookDirection = currentCamera.CFrame.LookVector
+					end
+					lookSendClock += dt
+					local changed = (lookDirection == nil) ~= (lastLookDirection == nil)
+						or (lookDirection ~= nil and lastLookDirection ~= nil and lookDirection:Dot(lastLookDirection) < HeadLook.CHANGE_COS)
+					if lookSendClock >= HeadLook.SEND_INTERVAL and (changed or lookSendClock >= HeadLook.KEEPALIVE_INTERVAL) then
+						self.HeadLookService.SetDirection:Fire(char, lookDirection)
+						lastLookDirection = lookDirection
+						lookSendClock = 0
+					end
+				end
 				headLook:Update({
 					Facing = rootCF.LookVector,
 					Up = up,
-					Suppressed = suppressed,
+					Direction = lookDirection,
+					Suppressed = lookSuppressed,
 				}, dt)
 			end
 			writer:EndFrame()
@@ -983,6 +1005,7 @@ end
 
 function MovementController:KnitStart()
 	self.MovementService = Knit.GetService("MovementService")
+	self.HeadLookService = Knit.GetService("HeadLookService")
 
 	local SpawnService = Knit.GetService("SpawnService")
 	SpawnService.Spawned:Connect(function(char: Model?)

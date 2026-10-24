@@ -252,9 +252,10 @@ return {
 				["BodyBone"] = "Body IK CTRL",
 			},
 
-			-- Attention (see Movement/HeadLook). Composes with the Neck chain
-			-- above: that leads into a TURN, this aims at a THING.
+			-- Camera head/neck aim (see Movement/HeadLook). Set CameraTracking
+			-- false to restore automatic attention toward nearby creatures.
 			["HeadLook"] = {
+				["CameraTracking"] = true,
 				["Bones"] = { "Neck.002", "Head" },
 				["Weights"] = { 0.4, 0.6 }, -- head carries more than the neck
 				["Aim"] = "Nose",           -- marks "forward" without assuming a bone axis

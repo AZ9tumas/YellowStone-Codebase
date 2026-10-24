@@ -29,7 +29,7 @@ script (cloned from `Speed`), so they don't need adding in Studio.
 | `Bank / Gain / Omega` | `GetArticulationDebug()` | Chest roll (deg), the speed gain (`IdleScale` when standing still), and the root's physical yaw rate in rad/s — should track `TurnRPS` with a small lag |
 | `FrontLeft … BackRight` | `GetLegIKDebug()` | Each paw's terrain correction in studs. Near `0` on flat ground; a stride's worth on a slope |
 | `Feet: n/4  Drop` | `GetLegIKDebug()` | How many paws found ground (0/4 = airborne, and the layer relaxes itself) and the body drop in studs |
-| `Look: yaw/pitch *` | `GetHeadLookDebug()` | Head aim off the body's facing, degrees. Trailing `*` = a target is acquired, `-` = relaxing onto the animation |
+| `Look: yaw/pitch *` | `GetHeadLookDebug()` | Smoothed head aim off the body's facing, degrees. Trailing `*` = an active camera direction or attention target, `-` = relaxing onto the animation |
 | `CamRate` | `GetCamYawRate()` | Camera yaw rate, rad/s — tells you whether *you* are the one turning |
 
 `TurnRate` is deliberately **not clamped**. A value above `1.0` means the
