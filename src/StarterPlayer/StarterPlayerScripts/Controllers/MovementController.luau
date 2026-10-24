@@ -9,12 +9,12 @@
 	  * SERVER owns speed magnitude. Each frame the LinearVelocity is set to
 	      facing.Unit * commandedSpeed,   commandedSpeed <= Humanoid.WalkSpeed
 	    where commandedSpeed is WalkSpeed shaved by the turn brake (regained
-	    no faster than the creature's Acceleration). Only MovementService
+	    no faster than Acceleration, while input is held). Only MovementService
 	    drives WalkSpeed, so the client can never exceed it.
 	  * The client sends only its INPUT INTENT (the gait the player is asking
 	    for), and only when it changes. Releasing input reports "Idle", the
-	    server ramps WalkSpeed to 0, and the creature decelerates instead of
-	    halting instantly. Accelerating from rest is the reverse.
+	    server ramps WalkSpeed to 0, and the client decelerates its current
+	    command toward 0 at Deceleration without recovering any turn-braked speed.
 
 	Gaits:
 	  * The VISUAL gait (Idle/Walk/Trot/Run/Sprint) is derived every frame from
@@ -246,8 +246,8 @@ local function buildContext(self, object)
 	local hasMoveInput = moveVector.Magnitude > 0
 
 	-- Desired heading (camera-relative input, flattened) and its gap from the
-	-- current facing. With no input the target IS the facing => zero gap, so
-	-- the brake always recovers to 1 when the sticks are released.
+	-- current facing. With no input the gap is zero; the speed step then
+	-- decelerates toward zero rather than recovering the removed turn brake.
 	local targetDir = object.Facing
 	if hasMoveInput then
 		local d = camera.CFrame:VectorToWorldSpace(moveVector)
@@ -429,9 +429,9 @@ local function updateMovement(self, object: obj, ctx, dt)
 
 	-- Velocity: always facing.Unit * CommandedSpeed. Magnitude is owned by the
 	-- server (WalkSpeed); we only shave it locally for turns — shed fast going
-	-- in, regained at the creature's Acceleration coming out. We do NOT zero it
-	-- on input release — the server ramps WalkSpeed to 0 and the magnitude
-	-- follows, producing deceleration.
+	-- in, regained at Acceleration while input is held. On release, the current
+	-- command falls toward zero at Deceleration, still capped by WalkSpeed.
+	-- Unused server speed from a pivot must never become a forward burst.
 	local lv = object.BodyMovers.LinearVelocity
 	if not lv or not lv.Parent then
 		return
@@ -466,7 +466,9 @@ local function updateMovement(self, object: obj, ctx, dt)
 			targetBrake,
 			dt,
 			object.info.Acceleration,
-			TURN_BRAKE_RESPONSE
+			TURN_BRAKE_RESPONSE,
+			ctx.hasMoveInput,
+			object.info.Deceleration
 		)
 		local v = object.Facing * object.CommandedSpeed
 		lv.PlaneVelocity = Vector2.new(v.X, v.Z)

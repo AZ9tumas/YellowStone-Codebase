@@ -17,9 +17,9 @@
 	verdict is published as the character's `Swimming` attribute for other
 	clients' leg IK.
 
-	Because the client keeps applying `facing.Unit * WalkSpeed`, ramping
-	WalkSpeed down produces a smooth deceleration to a stop on input release,
-	and ramping up produces acceleration from rest — no instant Roblox stop.
+	The client applies `facing.Unit * commandedSpeed`, capped by WalkSpeed.
+	On release it decelerates its current command immediately, while this
+	service lowers the ceiling. Unused speed from turn braking is not recovered.
 
 	Replaces the ByteNet `sprint` packet (-> SetState) and the old
 	remotes.server PlayerAdded + Heartbeat + Modules/Remotes.UpdateStamina.

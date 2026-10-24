@@ -88,7 +88,7 @@ whatever curve shape fits its body mass and agility.
 
 ## 3. Easing — brake fast in, accelerate out at `Acceleration`
 
-The instantaneous curve value is a *target speed*, $W \cdot B(\theta_{\text{gap}})$.
+While movement input is held, the instantaneous curve value is a *target speed*, $W \cdot B(\theta_{\text{gap}})$.
 The client steps a commanded speed $s$ toward it
 (`MovementMath.StepTurnBrakedSpeed`): speed is shed exponentially, so the
 creature plants into a turn, but regained no faster than the creature's
@@ -113,7 +113,7 @@ a clip runs: the target becomes $\min(B(\theta_{\text{gap}}), \texttt{TurnInPlac
 The clips plant the paws, so without the cap the body kept travelling at the
 curve's floor (wolf: $73 \times 0.2 = 14.6$ studs/s) and slid through the
 footwork. The cap goes through the same easing, so the body settles into the
-turn and accelerates back out at `Acceleration` when the clip ends. It is never zero, and the
+turn and accelerates back out at `Acceleration` when the clip ends if input is still held. It is never zero, and the
 overlays never zero velocity or report Idle while movement input is held. Releasing
 input, aligning with the requested heading, reversing direction, starting an
 action, or leaving the ground interrupts the current clip immediately, with a
@@ -151,11 +151,20 @@ written to the plane-locked `LinearVelocity` as `PlaneVelocity = (v_x, v_z)`.
 A zero-velocity frame also resets $s$ to 0, so the creature accelerates away
 again rather than jumping back to speed.
 
-The velocity is **not** zeroed on input release: the server ramps
-$W \to 0$ (see [Server Speed Authority](Server-Speed-Authority.md)) and the
-applied magnitude follows it down, producing a natural deceleration instead of
-the instant Roblox halt. Acceleration from rest is the same mechanism in
-reverse.
+On input release, the client decelerates its current commanded speed at the
+creature's `Deceleration` $d$, still bounded by the server's ceiling:
+
+$$
+s \leftarrow \min\big(W,\; \max(0,\; s - d\,\Delta t)\big)
+$$
+
+The server also ramps $W \to 0$ (see
+[Server Speed Authority](Server-Speed-Authority.md)). Taking the lower of
+the two does not add their deceleration rates. Normal running still coasts
+to a stop; a nearly stationary pivot has almost no speed left to shed.
+Cancelling a turn removes its brake but cannot increase speed without move
+input, even if the server's ceiling is still high. Re-pressing input resumes
+acceleration from the remaining commanded speed.
 
 ## Debug surface
 

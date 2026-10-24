@@ -85,7 +85,12 @@ local function fixture(config)
 	return turner, ac, signals
 end
 
-local config = creatures.Wolf.Male.TurnInPlace
+-- Stable clip geometry for timing tests; animal tuning can change independently.
+local config = { MinAngle = 60, Brake = 0.05, Turns = {
+	{ Angle = 90, Left = "Turn90Left", Right = "Turn90Right" },
+	{ Angle = 180, Left = "Turn180Left", Right = "Turn180Right" },
+} }
+fixture(creatures.Wolf.Male.TurnInPlace) -- still validate the current animal config
 local function withTurnSpeeds(ninety, oneEighty)
 	local tuned = table.clone(config)
 	tuned.Turns = {}
@@ -391,14 +396,14 @@ do
 		local dt = 1 / fps
 		local speed = walk
 		for _ = 1, fps do
-			speed = mathModule.StepTurnBrakedSpeed(speed, walk, floor, dt, accel, 10)
+			speed = mathModule.StepTurnBrakedSpeed(speed, walk, floor, dt, accel, 10, true, info.Deceleration)
 		end
 		check(speed < walk * floor * 1.1, `brakes into a turn within a second at {fps} FPS`)
 
 		local elapsed, worst = 0, 0
 		while speed < walk - 1e-6 do
 			local before = speed
-			speed = mathModule.StepTurnBrakedSpeed(speed, walk, 1, dt, accel, 10)
+			speed = mathModule.StepTurnBrakedSpeed(speed, walk, 1, dt, accel, 10, true, info.Deceleration)
 			worst = math.max(worst, (speed - before) / dt)
 			elapsed += dt
 			check(speed <= walk, "recovery never exceeds WalkSpeed")
@@ -407,9 +412,71 @@ do
 		local expected = (walk - walk * floor) / accel
 		check(math.abs(elapsed - expected) <= dt + 0.05, `recovery takes (gap / Acceleration) s at {fps} FPS`)
 
-		-- The server dropping WalkSpeed (release, gait drop) is followed at once.
-		check(mathModule.StepTurnBrakedSpeed(walk, 40, 1, dt, accel, 10) == 40, "follows a falling WalkSpeed")
+		-- A lower server ceiling (gait drop, stamina) is followed at once.
+		check(mathModule.StepTurnBrakedSpeed(walk, 40, 1, dt, accel, 10, true, info.Deceleration) == 40,
+			"follows a falling WalkSpeed")
 	end
 end
+
+-- Releasing a pivot must never recover toward the unused server speed. Test
+-- actual turn cancellation after short and sustained input, then re-pressing.
+do
+	local info = creatures.Wolf.Male
+	for _, fps in { 30, 60, 144 } do
+		local dt = 1 / fps
+		for _, heldFor in { 0.2, 1, 4 } do
+			local turner, ac, signals = fixture(info.TurnInPlace)
+			local speed, walk = 0, 0
+			for _ = 1, math.ceil(heldFor * fps) do
+				walk = mathModule.Accelerate(walk, info.SprintSpeed, dt, info.Acceleration, info.Deceleration)
+				signals.Facing = turner:Update(signals, dt)
+				speed = mathModule.StepTurnBrakedSpeed(speed, walk, turner:GetBrake(), dt, info.Acceleration, 10, true, info.Deceleration)
+			end
+			check(walk > speed, "pivot leaves unused server speed")
+			signals.Steering = false
+			check(turner:Update(signals, dt) == nil and ac.currentTurn == nil, "release cancels the pivot immediately")
+			local before = speed
+			speed = mathModule.StepTurnBrakedSpeed(speed, walk, turner:GetBrake(), dt, info.Acceleration, 10, false, info.Deceleration)
+			check(speed < before and speed >= 0, `release sheds pivot speed after {heldFor}s at {fps} FPS`)
+			check(math.abs(speed - math.max(0, before - info.Deceleration * dt)) < 1e-6,
+				"pivot release decelerates from current speed, not unused server speed")
+			local resumed = mathModule.StepTurnBrakedSpeed(speed, walk, 1, dt, info.Acceleration, 10, true, info.Deceleration)
+			check(resumed > speed and resumed - speed <= info.Acceleration * dt + 1e-6,
+				"re-pressing resumes acceleration from the remaining speed")
+		end
+	end
+end
+
+-- Ordinary coasting retains each creature's Deceleration. A delayed server
+-- release cannot add thrust; a server already decelerating cannot double it.
+for species, genders in creatures do
+	local info = genders.Male
+	for _, fps in { 30, 60, 144 } do
+		local dt = 1 / fps
+		for _, initial in { 0, 0.6, info.WalkSpeed, info.RunSpeed, info.SprintSpeed } do
+			for _, delay in { 0, 0.3, math.huge } do
+				local speed, walk = initial, info.SprintSpeed
+				local frames = math.ceil((initial / info.Deceleration + 0.5) * fps)
+				for frame = 1, frames do
+					if (frame - 1) * dt >= delay then
+						walk = mathModule.Accelerate(walk, 0, dt, info.Acceleration, info.Deceleration)
+					end
+					local before = speed
+					speed = mathModule.StepTurnBrakedSpeed(speed, walk, 1, dt, info.Acceleration, 10, false, info.Deceleration)
+					check(speed >= 0 and speed <= before and speed <= walk, "released speed only falls, within server authority")
+					-- Accelerate may snap the server's last <0.1 studs/s to zero.
+					local expected = math.min(walk, math.max(0, initial - info.Deceleration * frame * dt))
+					check(math.abs(speed - expected) < 1e-6, `{species}: normal stopping rate at {fps} FPS`)
+				end
+				check(speed == 0, "release reaches zero and stays stopped even with a high server ceiling")
+			end
+		end
+	end
+end
+
+check(mathModule.StepTurnBrakedSpeed(20, 2, 1, 0.01, 60, 10, false, 60) == 2,
+	"release still obeys a suddenly lower server ceiling")
+check(mathModule.StepTurnBrakedSpeed(20, 73, 1, 1, 60, 10, false, 60) == 0,
+	"a long release frame stops without reversing")
 
 print(`PASS: {checks} movement regression checks`)

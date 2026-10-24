@@ -108,10 +108,13 @@ ramps rather than jumps:
 * **Press W:** intent `Walk` → $W$ ramps $0 \to S_{\text{walk}}$ → the
   creature accelerates from rest; the velocity-derived visual gait climbs the
   animation ladder in sync.
-* **Release:** intent `Idle` → $W$ ramps to $0$ → the creature decelerates
-  and coasts to a stop instead of the instant Roblox halt; the gait descends.
+* **Release:** intent `Idle` → $W$ ramps to $0$. The client immediately reduces
+  its current commanded speed at `Deceleration`, capped by $W$, so it coasts
+  to a stop without recovering speed lost to turn braking. A high ceiling
+  left over from a pivot cannot launch it forward; the gait follows its speed.
 * **Exhaustion / injury:** the penalties shrink the target, and the same ramp
   glides the creature down to its degraded speed.
 
-One mechanism — server-side target + ramp, client-side application — covers
-acceleration, deceleration, stamina, health, and anti-speed-exploit at once.
+The server's target and ramp bound travel speed. The client applies turn
+braking and release deceleration below that ceiling; speed recovery requires
+movement input.

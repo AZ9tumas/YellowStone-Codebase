@@ -33,7 +33,8 @@ client:  velocity  =  Facing × CommandedSpeed   (≤ WalkSpeed)
          Facing    turns toward input at  <VisualGait>TurnRate  (rad/s)
                    or follows a turn clip's pace, with that cap × SpeedMultiplier
          CommandedSpeed → WalkSpeed × TurnBrakeCurve(angle between facing and input)
-                   dropping fast, climbing back at most at Acceleration
+                   while input is held: dropping fast, recovering at Acceleration
+         on release: CommandedSpeed → 0 at Deceleration, still ≤ WalkSpeed
          VisualGait = band of the measured speed (Walk/Trot/RunSpeed thresholds)
 ```
 
@@ -52,8 +53,8 @@ time to approach the curve value.
 |---|---|
 | `WalkSpeed` / `TrotSpeed` / `RunSpeed` / `SprintSpeed` | Server target speed for that **input** gait, and reference for the gait animation's playback rate (smoothed measured speed ÷ configured speed, clamped 0.5–1.2). Walk/Trot/Run also define the visual gait boundaries: upshift above the lower gait's speed × 1.12, downshift below it × 1.06. `SprintSpeed` is not another band boundary. Changing a speed can therefore change both travel and animation selection. |
 | `IdleSpeed` | Server target when input is released or an action freezes movement; currently 0 for every animal. |
-| `Acceleration` | How fast the server raises WalkSpeed (studs/s²), getting up to speed from rest. Also caps how fast speed comes back after a turn (client side). |
-| `Deceleration` | How fast the server lowers WalkSpeed on release / gait drop. **Does not affect turn braking** — speed is shed into a turn client-side at a fixed rate (`TURN_BRAKE_RESPONSE = 10` in MovementController, ~0.1 s time constant). |
+| `Acceleration` | How fast the server raises WalkSpeed (studs/s²), getting up to speed from rest. Also caps how fast speed comes back after a turn while movement input remains held (client side). |
+| `Deceleration` | How fast the server lowers WalkSpeed on release / gait drop (studs/s²). On release, the client also reduces its current commanded speed toward zero at this rate, without recovering turn-braked speed. The server ceiling is still respected; the two reductions do not add together. **Does not affect turn braking while input is held** — speed is shed into a turn at a fixed rate (`TURN_BRAKE_RESPONSE = 10` in MovementController, ~0.1 s time constant). |
 
 ## Turning
 

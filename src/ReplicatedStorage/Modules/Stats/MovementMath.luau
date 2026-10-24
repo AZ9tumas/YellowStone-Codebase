@@ -87,16 +87,24 @@ end
 -- body reaches walking pace before a turn clip plants the paws. Regaining it
 -- is capped at the creature's `acceleration` (studs/s^2), the same rate the
 -- server ramps WalkSpeed from rest: easing back exponentially instead made
--- the recovery after a sprint 180 hit ~700 studs/s^2. Never above
--- `walkSpeed`, so the server's ramp alone governs stopping and gait drops.
+-- the recovery after a sprint 180 hit ~700 studs/s^2. Recovery requires move
+-- input: on release, decelerate from the current command toward zero instead
+-- of recovering toward unused server speed. Always stay below `walkSpeed`.
 function MovementMath.StepTurnBrakedSpeed(
 	current: number,
 	walkSpeed: number,
 	targetBrake: number,
 	dt: number,
 	acceleration: number,
-	brakeResponse: number
+	brakeResponse: number,
+	hasMoveInput: boolean,
+	deceleration: number
 ): number
+	if not hasMoveInput then
+		-- The turn brake disappears on release, but its lost speed is not
+		-- momentum. Stop locally even while the server still has a high ceiling.
+		return math.min(walkSpeed, math.max(0, current - deceleration * dt))
+	end
 	local target = walkSpeed * targetBrake
 	local speed = if target < current
 		then current + (target - current) * (1 - math.exp(-brakeResponse * dt))

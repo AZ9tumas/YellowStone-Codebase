@@ -146,8 +146,8 @@ return {
 			-- Swimming (see Movement/Swimming). In deep water the server maps
 			-- Idle -> SwimIdle, Walk/Trot -> Swim, Run/Sprint -> SwimFast.
 			["SwimIdleSpeed"] = 0,
-			["SwimSpeed"] = 8,
-			["SwimFastSpeed"] = 14,
+			["SwimSpeed"] = 10,
+			["SwimFastSpeed"] = 20,
 
 			["MaxStamina"] = 100,
 			["RunStaminaDrain"] = 0.5,
@@ -159,19 +159,19 @@ return {
 
 			["SwimStaminaDrain"] = 0.5,
 			["SwimFastStaminaDrain"] = 1.5, -- below the penalty threshold it slows toward SwimSpeed
-			["SwimIdleStaminaGain"] = 3,    -- treading water rests a little
+			["SwimIdleStaminaGain"] = 1,    -- treading water rests a little
 
 			-- When low on health (below threshold), max reduction in speed (penalty).
 			["MaxHealthSpeedPenalty"] = 0.15,
 			["StaminaPenaltyThreshold"] = 0.5,
 			["HealthPenaltyThreshold"] = 0.5,
 
-			["Acceleration"] = 60,
-			["Deceleration"] = 60,
+			["Acceleration"] = 120,
+			["Deceleration"] = 200,
 
 			["BaseTurnRate"] = 6,        -- turning circle when stopped
-			["IdleTurnRate"] = 5,        -- Turning circle when idle (overrides BaseTurnRate)
-			["WalkTurnRate"] = 2,         -- Turning circle when walking
+			["IdleTurnRate"] = 7,        -- Turning circle when idle (overrides BaseTurnRate)
+			["WalkTurnRate"] = 4,         -- Turning circle when walking
 			["TrotTurnRate"] = 5,         -- Turning circle when trotting
 			["RunTurnRate"] = 4,          -- Turning circle when running
 			["SprintTurnRate"] = 4,       -- Turning circle when sprinting (overrides BaseTurnRate)
@@ -184,7 +184,7 @@ return {
 			-- sharp turns but never fully stops.
 			["TurnBrakeCurve"] = {
 				{ Angle = 0,   Brake = 1 },
-				{ Angle = 10,  Brake = 1 },    -- micro-corrections are free
+				{ Angle = 10,  Brake = 0.9 },    -- micro-corrections are free
 				{ Angle = 45,  Brake = 0.6 },
 				{ Angle = 90,  Brake = 0.25 },
 				{ Angle = 180, Brake = 0.2 },
@@ -199,22 +199,22 @@ return {
 			-- before it. Bank replaces the whole-body tilt above for this
 			-- creature (MovementController zeroes it when Bank is present).
 			["BodyArticulation"] = {
-				["SpeedRef"] = "TrotSpeed", -- fully on at a trot
-				["IdleScale"] = 0.35,       -- still articulates a little when turning on the spot
+				["SpeedRef"] = "WalkSpeed", -- fully on at a trot
+				["IdleScale"] = 0.25,       -- still articulates a little when turning on the spot
 				["Chains"] = {
 					{ -- rear falls behind the chest, then swings through
 						["Name"] = "Spine",
 						["Bones"] = { "Back.001", "Back.002", "Lowe Back" },
 						["Weights"] = { 0.25, 0.35, 0.40 }, -- lumbar bends most
-						["MaxYaw"] = 22,
+						["MaxYaw"] = 45,
 						["Frequency"] = 2.5,
-						["Damping"] = 0.7,   -- < 1: slight overshoot = follow-through
+						["Damping"] = 0.8,   -- < 1: slight overshoot = follow-through
 					},
 					{ -- head looks where the player is steering before the body gets there
 						["Name"] = "Neck",
 						["Bones"] = { "Neck.001", "Neck.002" },
 						["Weights"] = { 0.45, 0.55 },
-						["MaxYaw"] = 30,
+						["MaxYaw"] = 40,
 						["Frequency"] = 6.0, -- must beat the body's turn rate or there is no lead
 						["Damping"] = 1.0,   -- no overshoot on the head
 						["TracksTarget"] = true,
@@ -222,9 +222,9 @@ return {
 					{ -- trails the spine with more lag and a looser spring
 						["Name"] = "Tail",
 						["Bones"] = { "Tail.001", "Tail.002", "Tail.003", "Tail.004", "Tail.005", "Tail.006", "Tail.007" },
-						["MaxYaw"] = 45,
+						["MaxYaw"] = 55,
 						["Frequency"] = 1.8,
-						["Damping"] = 0.45,
+						["Damping"] = 1,
 						["Follows"] = "Spine",
 					},
 				},
@@ -274,18 +274,18 @@ return {
 				-- Most speed kept while a turn clip plays (x WalkSpeed, eased like
 				-- the brake curve). The clips plant the paws: 0.05 at a sprint is
 				-- ~3.7 studs/s instead of the curve's 14.6, which slid.
-				["Brake"] = 0.05,
+				["Brake"] = 0.01,
 				-- SpeedMultiplier scales playback, rotation timing and the turn's
 				-- rate cap together. 1 = current pace; 1.3 = 30% faster; omitted = 1.
 				["Turns"] = {
-					{ ["Angle"] = 90,  ["Left"] = "Turn90Left", ["Right"] = "Turn90Right", ["SpeedMultiplier"] = 1 },
-					{ ["Angle"] = 180, ["Left"] = "Turn180Left", ["Right"] = "Turn180Right", ["SpeedMultiplier"] = 1.3 },
+					{ ["Angle"] = 110,  ["Left"] = "Turn90Left", ["Right"] = "Turn90Right", ["SpeedMultiplier"] = 1.4 },
+					{ ["Angle"] = 210, ["Left"] = "Turn180Left", ["Right"] = "Turn180Right", ["SpeedMultiplier"] = 1.3 },
 				},
 			},
 
 			["Swimming"] = {
 				["FloatDepth"] = 0.3, -- root this fraction of its standing height under the surface
-				["Buoyancy"] = 4,     -- 1/s: how fast the body settles to that height
+				["Buoyancy"] = 2,     -- 1/s: how fast the body settles to that height
 			},
 
 			-- Terrain Alignment
