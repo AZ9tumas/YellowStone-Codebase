@@ -12,7 +12,7 @@
 	                   PlayAction / StopAction.
 	  * TURN layer   — at most one in-place turn clip (TurnInPlace), over the
 	                   gait at Action priority, always from its first frame at
-	                   its authored speed. Driven by PlayTurn / StopTurn; the
+	                   its configured speed. Driven by PlayTurn / StopTurn; the
 	                   caller paces the body to the clip and stops it.
 
 	Animations are loaded by name from the player's `Animations` folder, which
@@ -48,7 +48,7 @@ export type AnimationController = {
 	PlayAction: (self: AnimationController, name: string, fadeTime: number?, looped: boolean?) -> (),
 	StopAction: (self: AnimationController, name: string, fadeTime: number?) -> (),
 	StopAllActions: (self: AnimationController, fadeTime: number?) -> (),
-	PlayTurn: (self: AnimationController, name: string, fadeTime: number?) -> AnimationTrack?,
+	PlayTurn: (self: AnimationController, name: string, fadeTime: number?, speedMultiplier: number?) -> AnimationTrack?,
 	StopTurn: (self: AnimationController, fadeTime: number?) -> (),
 	SetAnimationSpeed: (self: AnimationController, name: string, speed: number) -> (),
 	GetTrack: (self: AnimationController, name: string) -> AnimationTrack?,
@@ -224,18 +224,22 @@ function AnimationController:StopAllActions(fadeTime: number?)
 	end
 end
 
--- TURN layer: play an in-place turn clip from its first frame at its authored
--- speed, replacing any different turn still playing. Repeating the same turn
+-- TURN layer: play an in-place turn clip from its first frame at the requested
+-- speed (default 1), replacing any different turn still playing. Repeating the same turn
 -- keeps its loop running without restarting or fading between cycles.
 -- Returns nil and plays nothing when
 -- the clip is missing or still loading (Length 0), since the caller has then
 -- no timeline to pace the body to.
-function AnimationController:PlayTurn(name: string, fadeTime: number?): AnimationTrack?
+function AnimationController:PlayTurn(name: string, fadeTime: number?, speedMultiplier: number?): AnimationTrack?
 	local track = self:_resolveTrack(name)
 	if not track or track.Length <= 0 then
 		return nil
 	end
+	local speed = speedMultiplier or 1
 	if self.currentTurn == name and track.IsPlaying then
+		if track.Speed ~= speed then
+			track:AdjustSpeed(speed)
+		end
 		return track
 	end
 	if self.currentTurn ~= name then
@@ -245,7 +249,7 @@ function AnimationController:PlayTurn(name: string, fadeTime: number?): Animatio
 	-- Looped, as authored, so a fade-out that runs past the last frame wraps
 	-- onto the identical first one instead of cutting.
 	track.Looped = true
-	track:Play(fadeTime or self.fadeTime, 1, 1)
+	track:Play(fadeTime or self.fadeTime, 1, speed)
 	track.TimePosition = 0
 	self.currentTurn = name
 	return track

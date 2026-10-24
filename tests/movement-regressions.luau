@@ -86,6 +86,17 @@ local function fixture(config)
 end
 
 local config = creatures.Wolf.Male.TurnInPlace
+local function withTurnSpeeds(ninety, oneEighty)
+	local tuned = table.clone(config)
+	tuned.Turns = {}
+	for _, row in config.Turns do
+		local copy = table.clone(row)
+		copy.SpeedMultiplier = if row.Angle == 90 then ninety else oneEighty
+		table.insert(tuned.Turns, copy)
+	end
+	return tuned
+end
+
 for _, fps in { 30, 60, 144 } do
 	local dt = 1 / fps
 	local turner, ac, s = fixture(config)
@@ -139,8 +150,119 @@ for _, fps in { 30, 60, 144 } do
 	check(turner:Update(s, dt) == nil and ac.currentTurn == nil, "steering straight cancels immediately")
 end
 
+-- The multiplier retimes both sides of each turn independently. Check body
+-- phase against the authored smoothstep, and completion against clip time.
+for _, fps in { 30, 60, 144 } do
+	for _, multiplier in { 0.5, 1.3, 2 } do
+		for _, angle in { 90, 180 } do
+			local tuned = withTurnSpeeds(if angle == 90 then multiplier else 1, if angle == 180 then multiplier else 1)
+			for _, sign in { -1, 1 } do
+				local turner, ac, s = fixture(tuned)
+				s.Sign = sign
+				local initial = s.Facing
+				local target = CFrame.Angles(0, math.rad(angle) * sign, 0) * initial
+				local name = `Turn{angle}{if sign > 0 then "Left" else "Right"}`
+				local track = ac.animationTracks[name]
+				local duration = track.Length / multiplier
+				local elapsed = 0
+				for _, phase in { 0.25, 0.5, 1 } do
+					while elapsed < duration * phase - 1e-9 do
+						local dt = math.min(1 / fps, duration * phase - elapsed)
+						s.Gap = math.acos(math.clamp(s.Facing:Dot(target), -1, 1))
+						local facing, cap = turner:Update(s, dt)
+						if facing then
+							s.Facing = facing
+							check(cap == s.MaxTurnRate * multiplier, "rotation frame reports its effective cap")
+						end
+						elapsed += dt
+					end
+					local expected = CFrame.Angles(0, math.rad(angle) * sign * phase * phase * (3 - 2 * phase), 0) * initial
+					check(s.Facing:Dot(expected) > 0.99999, `{name}: body phase {phase} at {multiplier}x, {fps} FPS`)
+					if phase < 1 then
+						check(track.Speed == multiplier, `{name}: playback matches rotation multiplier`)
+					end
+				end
+				check(track.plays == 1 and ac.currentTurn == nil, "alignment ends the scaled turn without an extra cycle")
+			end
+		end
+
+		-- A tight gait cap must scale too, and repeated fractional cycles must
+		-- keep their timeline without replaying the track at each boundary.
+		local turner, ac, s = fixture(withTurnSpeeds(1, multiplier))
+		s.Sign, s.MaxTurnRate = -1, 1
+		local largestStep = 0
+		for _ = 1, fps * 20 do
+			local before = s.Facing
+			local facing, cap = turner:Update(s, 1 / fps)
+			s.Facing = facing
+			local delta = math.atan2(math.abs(before:Cross(facing).Y), before:Dot(facing))
+			check(cap == multiplier and delta <= cap / fps + 1e-5, "scaled turn respects its effective cap")
+			largestStep = math.max(largestStep, delta)
+		end
+		check(largestStep * fps > multiplier * 0.99, "turn can reach the scaled allowance")
+		local track = ac.animationTracks.Turn180Right
+		local duration = track.Length / multiplier
+		check(math.abs(turner.turn.elapsed % duration - 20 % duration) < 1e-6, "scaled right-turn cycles retain fractional time")
+		check(track.plays == 1 and track.stops == 0 and track.Speed == multiplier, "scaled loops stay uninterrupted")
+		s.Sign = 1
+		local before = s.Facing
+		s.Facing = turner:Update(s, 1 / fps)
+		check(before:Cross(s.Facing).Y > 0 and ac.animationTracks.Turn180Left.Speed == multiplier, "scaled reversal is immediate")
+		s.Steering = false
+		local facing, cap = turner:Update(s, 1 / fps)
+		check(facing == nil and cap == nil and ac.currentTurn == nil, "release yields ordinary steering with no scaled cap")
+		s.Steering = true
+		facing, cap = turner:Update(s, 1 / fps)
+		check(facing ~= nil and cap == multiplier and ac.animationTracks.Turn180Left.Speed == multiplier, "resume restores scaled playback")
+	end
+end
+
+do
+	-- Force alignment within a rotation frame rather than at the next frame's
+	-- tolerance check. Diagnostics still need that frame's scaled cap.
+	local turner, _, s = fixture(withTurnSpeeds(1, 1.3))
+	s.Facing = turner:Update(s, 0.2)
+	s.Gap = 0.01
+	local facing, cap = turner:Update(s, 0.1)
+	check(facing ~= nil and turner:GetLabel() == nil and cap == 13, "completion frame retains its effective cap")
+end
+
+do
+	local implicit, implicitAC, s = fixture(withTurnSpeeds(nil, nil))
+	local explicit, explicitAC = fixture(withTurnSpeeds(1, 1))
+	for frame = 1, 180 do
+		s.Sign = if frame < 90 then 1 else -1
+		local a, capA = implicit:Update(s, 1 / 60)
+		local b, capB = explicit:Update(s, 1 / 60)
+		check((a - b).Magnitude < 1e-6 and capA == capB, "omitted multiplier matches explicit 1")
+		s.Facing = a
+	end
+	check(implicitAC.animationTracks.Turn180Right.Speed == 1 and explicitAC.animationTracks.Turn180Right.Speed == 1,
+		"default playback remains authored speed")
+
+	local track = explicitAC.animationTracks.Turn180Right
+	track.TimePosition = 0.37
+	explicitAC:PlayTurn("Turn180Right", 0.1, 1.3)
+	check(track.TimePosition == 0.37 and track.plays == 1 and track.Speed == 1.3, "retiming a playing clip preserves its phase")
+	explicitAC:PlayTurn("Turn180Right", 0.1)
+	check(track.TimePosition == 0.37 and track.Speed == 1, "PlayTurn without a multiplier defaults to 1")
+end
+
+for _, invalid in { 0, -1, math.huge, -math.huge, 0 / 0, "fast", false } do
+	local ok, err = pcall(fixture, withTurnSpeeds(1, invalid))
+	check(not ok and string.find(tostring(err), "SpeedMultiplier", 1, true) ~= nil, "invalid multiplier rejected at config load")
+end
+
+do
+	local turner, _, s = fixture({ MinAngle = 60, Turns = { { Angle = 180, Duration = 1.6, SpeedMultiplier = 2 } } })
+	local initial = s.Facing
+	local facing, cap = turner:Update(s, 0.4)
+	check(turner:IsStepping() and math.abs(initial:Dot(facing)) < 1e-6 and cap == 20,
+		"procedural duration and rotation cap use the multiplier too")
+end
+
 for _, signal in { "Blocked", "Grounded" } do
-	local turner, ac, s = fixture(config)
+	local turner, ac, s = fixture(withTurnSpeeds(1.3, 1.3))
 	turner:Update(s, 0.1)
 	s[signal] = signal == "Blocked"
 	check(turner:Update(s, 0.1) == nil and ac.currentTurn == nil, signal .. " cancels")

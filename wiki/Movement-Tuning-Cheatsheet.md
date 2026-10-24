@@ -6,7 +6,7 @@
 > `src/ReplicatedStorage/Modules/Stats/CreatureStats.luau` under
 > `CreatureStats[Species][Gender]`.
 
-Checked against the code on 21 October 2026. The current rows are `Horsie.Male`,
+Checked against the code on 22 October 2026. The current rows are `Horsie.Male`,
 `MuleDeer.Male`, and `Wolf.Male`. This document describes existing behavior;
 it does not change any settings.
 
@@ -31,7 +31,7 @@ server:  WalkSpeed  ──ramps toward──▶  stamina-adjusted gait target ×
                                         (Acceleration / Deceleration)
 client:  velocity  =  Facing × CommandedSpeed   (≤ WalkSpeed)
          Facing    turns toward input at  <VisualGait>TurnRate  (rad/s)
-                   or follows a turn clip's pace, still limited by that cap
+                   or follows a turn clip's pace, with that cap × SpeedMultiplier
          CommandedSpeed → WalkSpeed × TurnBrakeCurve(angle between facing and input)
                    dropping fast, climbing back at most at Acceleration
          VisualGait = band of the measured speed (Walk/Trot/RunSpeed thresholds)
@@ -59,7 +59,7 @@ time to approach the curve value.
 
 | Key | What it really does |
 |---|---|
-| `<Gait>TurnRate` (`IdleTurnRate`, `WalkTurnRate`, `TrotTurnRate`, `RunTurnRate`, `SprintTurnRate`) | Max rotation speed in **rad/s** (4 ≈ 229°/s, 6 ≈ 344°/s, 10 ≈ 573°/s), chosen by the **visual** gait. Braking from Sprint into Trot changes the cap to `TrotTurnRate`, even while Sprint remains the input intent. Higher caps permit tighter turns; a slower turn clip may still limit rotation. Approximate radius at steady speed/rate is `speed ÷ angular rate`. |
+| `<Gait>TurnRate` (`IdleTurnRate`, `WalkTurnRate`, `TrotTurnRate`, `RunTurnRate`, `SprintTurnRate`) | Max rotation speed in **rad/s** (4 ≈ 229°/s, 6 ≈ 344°/s, 10 ≈ 573°/s), chosen by the **visual** gait. Braking from Sprint into Trot changes the cap to `TrotTurnRate`, even while Sprint remains the input intent. An active turn overlay multiplies this cap by its `SpeedMultiplier`. Higher caps permit tighter turns; a slower turn clip may still limit rotation. Approximate radius at steady speed/rate is `speed ÷ angular rate`. |
 | `BaseTurnRate` | Fallback for any gait without its own `<Gait>TurnRate`. Required. |
 | `SwimIdleTurnRate` / `SwimTurnRate` / `SwimFastTurnRate` | Turn caps while swimming (see [Swimming](Swimming.md)). The deer's old `SwimmingTurnRate` is unread. |
 | `TurnBrakeCurve[].Angle` | Heading gap in degrees between controller facing and requested direction. Points must be ordered by increasing angle; values between points are linearly interpolated. Moving a point changes where braking begins or strengthens. This is not degrees turned per second. |
@@ -72,13 +72,29 @@ time to approach the curve value.
 | `MinAngle` | Minimum heading gap (deg) to start or repeat a turn cycle. Raising it reduces how often clips start. An active cycle can continue below this angle until alignment, release, reversal, interruption or its end. |
 | `Brake` | Optional. Most speed kept while a turn clip plays (fraction of WalkSpeed); the brake target becomes the lower of this and the curve, eased the same way. The clips plant the paws, so this is what stops the body sliding through them. Lower = more planted pivot; higher = more sweeping, more slide. Omitted = curve only. |
 | `Turns[].Angle` | Authored turn size in degrees, used to select the closest clip by angle ratio. The 90/180 choice changes at about 127.3°. Actual rotation follows the requested gap, not a forced exact 90/180. |
-| `Turns[].Left` / `Right` | Names from `Animations` for each direction. The clip plays at its authored speed; rotation follows a smoothstep over its length, capped by the current gait. The wolf's 180 clips are about 1 second long. Same-side repeats keep the clip looping. |
-| `Turns[].Duration` | Seconds per procedural turn cycle, used instead of `Left`/`Right`. Enables procedural paw stepping; does not retime an authored clip. Retained for experiments, currently not selected for Wolf. |
+| `Turns[].Left` / `Right` | Names from `Animations` for each direction. Rotation follows a smoothstep over the clip's playback duration, capped by the current gait rate × `SpeedMultiplier`. The wolf's 180 clips are about 1 second long at authored speed. Same-side repeats keep the clip looping. |
+| `Turns[].SpeedMultiplier` | Optional positive, finite number; omitted or `1` = current pace. Shared by left/right in this row. Scales animation playback, rotation timing, and the turn's rate cap together: `1.3` = 30% faster, `0.8` = 20% slower. Playback duration is clip length ÷ multiplier. Also divides a procedural `Duration`; it does not change procedural paw-step settings. Does not directly change travel speed, braking, entry angle, or ordinary steering rates. |
+| `Turns[].Duration` | Base seconds per procedural turn cycle, used instead of `Left`/`Right`; effective duration is this value ÷ `SpeedMultiplier`. Enables procedural paw stepping. Retained for experiments, currently not selected for Wolf. |
 
 Turn overlays never zero velocity or force Idle. Movement continues at
 `WalkSpeed × TurnBrake`, with the brake capped at `Brake` while a clip plays;
 release/alignment cancels the overlay,
 direction reversal switches sides, and actions or losing ground interrupt it.
+
+For example, keep quarter-turns at their current pace and speed up about-faces:
+
+```lua
+Turns = {
+    { Angle = 90, Left = "Turn90Left", Right = "Turn90Right", SpeedMultiplier = 1 },
+    { Angle = 180, Left = "Turn180Left", Right = "Turn180Right", SpeedMultiplier = 1.3 },
+}
+```
+
+A one-second clip takes about 0.77 seconds at `1.3`. The rotation cap scales
+with it, but a restrictive gait cap can still prevent full alignment in one
+cycle. Faster alignment can shorten the time spent braking; this setting does
+not change the brake's speed floor. Both Wolf rows ship at `1`. Set the value
+back to `1`, or remove it, to restore the previous pace.
 
 ## Swimming (optional, currently Wolf)
 
@@ -156,7 +172,7 @@ set correction/probe distances as fractions of each leg's length.
 [PawStepper](../src/ReplicatedStorage/Modules/Movement/PawStepper.luau).
 
 `Animations` maps gait/action/turn names to asset IDs. Gait playback scales
-with measured speed; authored turn clips retain their original playback speed.
+with measured speed; turn clips use their row's `SpeedMultiplier` (default `1`).
 `AttackDamage`, `StaminaAttackCost`, and `HealthAttackCost` affect combat damage,
 not locomotion speed or braking.
 
@@ -166,10 +182,10 @@ not locomotion speed or braking.
 |---|---|---|---|
 | Walk / Trot / Run / Sprint | 15 / 28 / 42 / 55 | 7 / 16 / 42 / 73 | 7 / 16 / 42 / 73 |
 | Accel / Decel | 25 / 10 | 60 / 60 | 60 / 60 |
-| Turn rate Idle·Walk·Trot·Run·Sprint (rad/s) | 4.5 everywhere (Base only) | 10 · 6 · 6 · 4 · 4 | 10 · 6 · 6 · 4 · 4 |
+| Turn rate Idle·Walk·Trot·Run·Sprint (rad/s) | 4.5 everywhere (Base only) | 10 · 6 · 6 · 4 · 4 | 5 · 2 · 5 · 4 · 4 |
 | Brake curve (deg→×) | 5→1, 40→.45, 75→.25, 180→.25 | 5→1, 45→.42, 75→.28, 180→.28 | 10→1, 45→.6, 90→.25, 180→.2 |
 | **Nominal full-sprint minimum from turn braking** | 55 × .25 ≈ **13.8** | 73 × .28 ≈ **20.4** | 73 × .20 ≈ **14.6** (≈3.7 while a turn clip plays) |
-| TurnInPlace | — | — | MinAngle 60; Brake 0.05 (≈3.7 at sprint); 90° + 180° clips |
+| TurnInPlace | — | — | MinAngle 90; Brake 0.05 (≈3.7 at sprint); 90° + 180° clips, each with SpeedMultiplier 1 |
 | Body lean | whole-body tilt 20° | whole-body tilt 30° | chest bank 18° (BodyArticulation) |
 
 ## Quick knobs for common feel problems
@@ -180,6 +196,7 @@ not locomotion speed or braking.
 | Brake later / only on really sharp turns | move the middle curve points to higher `Angle` |
 | Tighter turning circle at speed | raise the relevant visual gait's turn rate; matters only when that cap is limiting rotation |
 | Turn clip only on true reversals | raise `TurnInPlace.MinAngle` |
+| Faster / slower turn animation and rotation together | `TurnInPlace.Turns[].SpeedMultiplier` on the desired 90° or 180° row |
 | Less sliding during turn clips | lower `TurnInPlace.Brake` |
 | Snappier / softer braking into a turn | `TURN_BRAKE_RESPONSE` (code constant, not per animal) |
 | Faster / slower recovery after a turn | `Acceleration` (also changes acceleration from rest) |

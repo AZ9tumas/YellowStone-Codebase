@@ -23,7 +23,10 @@ running underneath and fading the action out always lands back in a live
 mid-cycle pose. Freezing actions (Eat/Drink/Rest) additionally force the gait
 to Idle through the state layer, not the animation layer.
 
-Turn clips play at authored speed and loop while sharp steering continues.
+Turn clips play at their turn row's `SpeedMultiplier` (default `1`, authored
+speed) and loop while sharp steering continues. The body follows the same
+retimed curve, with the gait's rotation cap multiplied by that value for the
+turn only. Ordinary gait/action playback and translation are not scaled by it.
 Repeating the same clip keeps its phase; changing sides starts the opposite
 clip. On cancellation, playback stops immediately and the held pose fades
 back to the live gait over 0.1 seconds. Actions take precedence over turns.

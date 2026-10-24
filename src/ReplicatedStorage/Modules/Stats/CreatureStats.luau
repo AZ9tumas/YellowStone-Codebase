@@ -169,10 +169,10 @@ return {
 			["Acceleration"] = 60,
 			["Deceleration"] = 60,
 
-			["BaseTurnRate"] = 10,        -- turning circle when stopped
+			["BaseTurnRate"] = 6,        -- turning circle when stopped
 			["IdleTurnRate"] = 5,        -- Turning circle when idle (overrides BaseTurnRate)
-			["WalkTurnRate"] = 3,         -- Turning circle when walking
-			["TrotTurnRate"] = 6,         -- Turning circle when trotting
+			["WalkTurnRate"] = 2,         -- Turning circle when walking
+			["TrotTurnRate"] = 5,         -- Turning circle when trotting
 			["RunTurnRate"] = 4,          -- Turning circle when running
 			["SprintTurnRate"] = 4,       -- Turning circle when sprinting (overrides BaseTurnRate)
 			["SwimIdleTurnRate"] = 3,     -- treading water
@@ -205,7 +205,7 @@ return {
 					{ -- rear falls behind the chest, then swings through
 						["Name"] = "Spine",
 						["Bones"] = { "Back.001", "Back.002", "Lowe Back" },
-						["Weights"] = { 0.25, 0.40, 0.50 }, -- lumbar bends most
+						["Weights"] = { 0.25, 0.35, 0.40 }, -- lumbar bends most
 						["MaxYaw"] = 22,
 						["Frequency"] = 2.5,
 						["Damping"] = 0.7,   -- < 1: slight overshoot = follow-through

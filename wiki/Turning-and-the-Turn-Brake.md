@@ -32,9 +32,9 @@ $$
 
 where $\theta_{\text{gap}}$ is the angle between facing and desired heading,
 $r_{\text{gait}}$ is the gait's max turn rate, and $\sigma = \pm 1$ is the
-turn direction from the cross-product sign. Faster gaits configure lower
-turn rates (e.g. Wolf: Idle $10$, Walk/Trot $6$, Run/Sprint $4$ rad/s), which
-produces wide, momentum-respecting arcs at speed.
+turn direction from the cross-product sign. Lower turn rates produce wider
+arcs at the same speed. These are the ordinary steering limits; a turn overlay
+scales its limit by the selected turn row's `SpeedMultiplier` (default `1`).
 
 While **resting**, rotation is disabled entirely.
 
@@ -120,12 +120,19 @@ action, or leaving the ground interrupts the current clip immediately, with a
 0.1-second visual fade. Sustained sharp input repeats the clip without a gap.
 
 `TurnInPlace` applies incremental rotation toward the live heading, paced by
-the clip's smoothstep curve and capped by the gait's turn rate. It never
+the clip's smoothstep curve and capped by the gait's turn rate multiplied by
+the selected row's `SpeedMultiplier`. This optional positive, finite value
+defaults to `1`; it scales animation playback and rotation timing together.
+At `1.3`, a one-second clip takes about 0.77 seconds and the turn's rate cap is
+30% higher. Left and right clips share the row's multiplier. Ordinary steering
+and the brake values are unchanged, although quicker alignment can reduce
+time spent braking. It never
 finishes a cached heading after input changes. Wolf uses authored clips for
 both 90 and 180 degrees. The procedural `PawStepper` remains available through
-a turn row with `Duration = 1.6` instead of `Left`/`Right` clip names.
+a turn row with `Duration = 1.6` instead of `Left`/`Right` clip names; its
+effective duration is also divided by `SpeedMultiplier`.
 
-Because the per-gait turn rate still caps rotation, a sharp turn demanded at a
+Because the scaled per-gait turn rate still caps rotation, a sharp turn demanded at a
 slow-turning gait (Sprint) keeps $\theta_{\text{gap}}$ large for **more
 frames**, so more total speed is shed — sharper turns at higher speeds cost
 more distance, exactly as intended.
@@ -155,7 +162,8 @@ reverse.
 The controller exposes the live turning state for the debug HUD:
 `GetTurnBrake()` (the eased $b$), `GetTurnAngle()`
 ($\theta_{\text{gap}}$ in degrees), `GetTurnRateFraction()`
-(applied rate / gait max — deliberately unclamped so a value $> 1$ would
-reveal the cap being blown), `GetTurnRateRPS()`, `GetMaxTurnRate()` and
+(applied rate / effective cap — deliberately unclamped so a value $> 1$ would
+reveal the cap being blown), `GetTurnRateRPS()`, `GetMaxTurnRate()` (includes
+the turn multiplier on overlay frames) and
 `GetCamYawRate()` (camera yaw angular velocity, for diagnosing camera-driven
 heading noise).

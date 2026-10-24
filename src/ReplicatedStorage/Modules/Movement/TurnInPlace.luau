@@ -11,10 +11,11 @@
 	tenth of the clip) — the animator keyed a 90 degree root turn with default
 	easing and the export dropped it. This module puts it back: the physical
 	body follows that curve, but each step is clamped to the LIVE heading gap
-	and gait turn-rate cap. Input always wins over the animation timeline.
+	and gait turn-rate cap (scaled by the turn's SpeedMultiplier). Input
+	always wins over the animation timeline.
 
-	The clip always plays at its authored speed. Nothing here speeds a clip
-	up or slows it down; the body is paced to the clip, never the reverse.
+	SpeedMultiplier defaults to 1 (authored speed). It scales clip playback,
+	the body's timeline and its rotation allowance together for this turn.
 	The turn nearest the demanded gap is chosen — by ratio, because the body
 	turns at gap / Angle times the turn's own pace — so a quarter turn plays
 	the 90 and an about-face the 180.
@@ -46,6 +47,7 @@ export type TurnConfig = {
 	Left: string?, -- clip names in the creature's Animations table
 	Right: string?,
 	Duration: number?, -- s: no clip; the paws are stepped procedurally
+	SpeedMultiplier: number?, -- positive, finite; defaults to 1 for both sides
 }
 
 export type Config = {
@@ -61,7 +63,7 @@ export type Signals = {
 	Steering: boolean, -- the player is asking to move at all
 	Grounded: boolean,
 	Blocked: boolean, -- an action owns the animation layer
-	MaxTurnRate: number, -- rad/s, preserves the gait's steering cap
+	MaxTurnRate: number, -- rad/s, gait cap before the turn's SpeedMultiplier
 }
 
 type Turn = {
@@ -69,7 +71,8 @@ type Turn = {
 	stepped: boolean,
 	sign: number,
 	angle: number, -- rad budget for this cycle, clamped to live input each frame
-	length: number, -- s, one play of the clip, or the stepped turn's Duration
+	length: number, -- wall-clock s per cycle, after SpeedMultiplier
+	speedMultiplier: number,
 	elapsed: number,
 }
 
@@ -156,6 +159,14 @@ function TurnInPlace.new(
 	end
 	for i, turn in config.Turns do
 		assert(type(turn.Angle) == "number" and turn.Angle > 0, `TurnInPlace: turn {i} needs a positive Angle`)
+		assert(
+			turn.SpeedMultiplier == nil or (
+				type(turn.SpeedMultiplier) == "number"
+				and turn.SpeedMultiplier > 0
+				and turn.SpeedMultiplier < math.huge
+			),
+			`TurnInPlace: turn {i} SpeedMultiplier must be a positive finite number`
+		)
 		if turn.Duration ~= nil then
 			assert(
 				type(turn.Duration) == "number" and turn.Duration > 0,
@@ -180,12 +191,13 @@ function TurnInPlace.new(
 	return self
 end
 
--- Returns this frame's facing, or nil to use ordinary steering. The caller
--- continues applying velocity and reporting movement intent in either case.
-function TurnInPlace:Update(signals: Signals, dt: number): Vector3?
+-- Returns this frame's facing and effective rate cap, or nils for ordinary
+-- steering. The cap belongs to this frame even if alignment ends the turn.
+-- The caller continues applying velocity and reporting movement intent.
+function TurnInPlace:Update(signals: Signals, dt: number): (Vector3?, number?)
 	if signals.Blocked or not signals.Grounded or not signals.Steering or signals.Gap <= ALIGN_EPS then
 		self:Cancel()
-		return nil
+		return nil, nil
 	end
 
 	local turn = self.turn
@@ -198,15 +210,17 @@ function TurnInPlace:Update(signals: Signals, dt: number): Vector3?
 	if not turn or turn.elapsed >= turn.length then
 		if signals.Gap < self.minAngle then
 			self:Cancel()
-			return nil
+			return nil, nil
 		end
 		-- Carry the fractional frame past a loop boundary. Dropping it would
 		-- slowly drift the body away from clips whose length isn't a multiple
-		-- of dt (the right 180 is 25/24 seconds). The gait cap still uses dt.
+		-- of dt (the right 180 is 25/24 seconds before SpeedMultiplier).
+		-- Both elapsed time and overflow are wall-clock seconds; the cap uses dt.
 		if turn then
 			timelineDt += turn.elapsed - turn.length
 		end
 		local pick = nearestTurn(self.turns, math.deg(signals.Gap))
+		local speedMultiplier = pick.SpeedMultiplier or 1
 		local side = if signals.Sign > 0 then "Left" else "Right"
 		local label, length
 		if pick.Duration then
@@ -214,10 +228,10 @@ function TurnInPlace:Update(signals: Signals, dt: number): Vector3?
 			label, length = `Step{pick.Angle}{side}`, pick.Duration
 		else
 			label = if signals.Sign > 0 then pick.Left else pick.Right
-			local track = self.animations:PlayTurn(label, FADE)
+			local track = self.animations:PlayTurn(label, FADE, speedMultiplier)
 			if not track then
 				self:Cancel()
-				return nil -- not loaded yet: turn the ordinary way this time
+				return nil, nil -- not loaded yet: turn the ordinary way this time
 			end
 			length = track.Length
 		end
@@ -226,7 +240,8 @@ function TurnInPlace:Update(signals: Signals, dt: number): Vector3?
 			stepped = pick.Duration ~= nil,
 			sign = signals.Sign,
 			angle = signals.Gap,
-			length = length,
+			length = length / speedMultiplier,
+			speedMultiplier = speedMultiplier,
 			elapsed = 0,
 		}
 		self.turn = turn
@@ -235,12 +250,13 @@ function TurnInPlace:Update(signals: Signals, dt: number): Vector3?
 	local before = smoothstep(turn.elapsed / turn.length)
 	turn.elapsed += timelineDt
 	local after = smoothstep(math.min(turn.elapsed / turn.length, 1))
-	local step = math.min(turn.angle * (after - before), signals.Gap, signals.MaxTurnRate * dt)
+	local maxTurnRate = signals.MaxTurnRate * turn.speedMultiplier
+	local step = math.min(turn.angle * (after - before), signals.Gap, maxTurnRate * dt)
 	local facing = CFrame.Angles(0, step * turn.sign, 0) * signals.Facing
 	if signals.Gap - step <= ALIGN_EPS then
 		self:Cancel()
 	end
-	return facing.Unit
+	return facing.Unit, maxTurnRate
 end
 
 -- Cut a running turn short (input, an action, leaving the ground). The

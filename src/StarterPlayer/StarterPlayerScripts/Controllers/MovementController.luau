@@ -100,6 +100,7 @@ export type obj = {
 	Facing: Vector3,
 	Turning: boolean, -- a turn overlay supplied the facing this frame
 	TurnApplied: number, -- rad applied by the overlay, for the steering diagnostics
+	TurnRateCap: number?, -- effective overlay cap this frame; nil for ordinary steering
 	TargetDir: Vector3, -- demanded heading this frame (== Facing with no input)
 	TurnSign: number?, -- +1 left / -1 right while actually steering; nil otherwise
 	LastFacing: Vector3,
@@ -328,11 +329,12 @@ local function updateTurnInPlace(object: obj, ctx, dt: number)
 	local turner = object.TurnInPlace
 	object.Turning = false
 	object.TurnApplied = 0
+	object.TurnRateCap = nil
 	if not turner then
 		return
 	end
 	local sm = object.StateMachine
-	local facing = turner:Update({
+	local facing, rateCap = turner:Update({
 		Facing = object.Facing,
 		Gap = ctx.angleGap,
 		Sign = ctx.turnSign,
@@ -344,6 +346,7 @@ local function updateTurnInPlace(object: obj, ctx, dt: number)
 	}, dt)
 	object.Turning = facing ~= nil
 	if facing then
+		object.TurnRateCap = rateCap
 		object.TurnApplied = math.atan2(math.abs(object.Facing:Cross(facing).Y), object.Facing:Dot(facing))
 		object.Facing = facing
 	end
@@ -389,7 +392,7 @@ local function updateMovement(self, object: obj, ctx, dt)
 	-- Resting disables the controls entirely (velocity is zeroed via
 	-- FreezesMovement); movement input then only pops rest levels. A
 	-- turn overlay may already have supplied this frame's rotation step.
-	local maxTurnRate = turnRateForGait(object.info, sm:GetGait())
+	local maxTurnRate = object.TurnRateCap or turnRateForGait(object.info, sm:GetGait())
 	local appliedTurn = object.TurnApplied
 	if ctx.hasMoveInput and angleDiff > 0.001 and not sm:IsResting() and not object.Turning then
 		appliedTurn = math.min(angleDiff, maxTurnRate * dt)
@@ -397,7 +400,8 @@ local function updateMovement(self, object: obj, ctx, dt)
 	end
 
 	local turnRateNow = appliedTurn / dt
-	-- Raw turn rate as a fraction of the gait's max (debug read-out). Deliberately
+	-- Raw turn rate as a fraction of this frame's cap (debug read-out), including
+	-- a turn overlay's SpeedMultiplier. Deliberately
 	-- NOT clamped so a value > 1 would reveal the per-frame turn cap being blown.
 	object.TurnRateFraction = turnRateNow / maxTurnRate
 	object.TurnRateRPS = turnRateNow
@@ -705,6 +709,7 @@ function MovementController:_buildObject(spawnedChar: Model?)
 		Facing = hrp.CFrame.LookVector,
 		Turning = false,
 		TurnApplied = 0,
+		TurnRateCap = nil,
 		TargetDir = hrp.CFrame.LookVector,
 		TurnSign = 1,
 		LastFacing = hrp.CFrame.LookVector,
