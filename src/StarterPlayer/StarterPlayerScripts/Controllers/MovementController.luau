@@ -830,7 +830,7 @@ function MovementController:_buildObject(spawnedChar: Model?)
 			end
 			if headLook then
 				local lookDirection: Vector3? = nil
-				local lookSuppressed = suppressed or humanoid.Health <= 0
+				local lookSuppressed = suppressed or humanoid.Health <= 0 or object.Turning
 				if headLook.cameraTracking then
 					-- Direction, not camera position: zooming should not pull the
 					-- head toward the viewer or change its aim through parallax.
@@ -852,6 +852,7 @@ function MovementController:_buildObject(spawnedChar: Model?)
 					Up = up,
 					Direction = lookDirection,
 					Suppressed = lookSuppressed,
+					Disabled = object.Turning,
 				}, dt)
 			end
 			writer:EndFrame()

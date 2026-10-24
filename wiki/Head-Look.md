@@ -34,8 +34,17 @@ actions, death, or when no camera direction is available. The smoothed aim
 is re-clamped against the current body orientation so a sharp body turn
 cannot leave the head pointing beyond its limits.
 
-The camera owns the final skull orientation, including roll. The neck still
-leads into movement, but its turn pose cannot tilt the final camera aim.
+**Turns in place disable head tracking immediately**, including animated
+and procedural turns. The owner uses the existing `Turning` state and clears
+its replicated camera direction. Observers release their camera head pose
+when that clear arrives. The ordinary fade would continue fighting most of a
+short turn, so `Signals.Disabled` removes head-look offsets immediately while
+preserving the animation and body-articulation layers. Once the turn ends or
+is cancelled, tracking blends back in toward the current camera direction.
+
+During normal movement, the camera owns the final skull orientation,
+including roll. The neck still leads into movement, but its turn pose cannot
+tilt the final camera aim.
 As the body catches up to the camera heading, the head's angle relative to
 the body naturally decreases; that is expected, not tracking switching off.
 
@@ -77,7 +86,9 @@ is enabled, rejects invalid vectors, normalises valid directions and limits
 update frequency. It writes `HeadLookDirection` on that character. Observers
 read this replicated attribute and smooth the head locally, applying the same
 joint limits. Late joiners and streamed-in creatures receive the latest pose.
-An absent direction fades out; observers never substitute their own cameras.
+An absent replicated direction immediately releases the observer's head
+tracking, including pauses for turns in place. Observers never substitute
+their own cameras.
 
 `Signals.Direction` takes priority over an explicit `Signals.Target` point.
 Camera tracking does not auto-acquire creatures when a direction is missing.
@@ -125,7 +136,9 @@ These use hierarchical mock rigs, including captured wolf bind geometry in
 `tests/fixtures/wolf-head-rest.luau`, and fake network signals. The wolf cases
 check its neutral skull angle, roll, animated neck turn lead, body turns on
 slopes, intermittent animation writes, suppression and reacquisition at
-30/60/144 FPS. Visual verification still requires a Studio play session.
+30/60/144 FPS. Turn-pause checks verify immediate release, preservation of
+the other bone layers and a smooth return toward the current camera.
+Visual verification still requires a Studio play session.
 
 Earlier automatic-attention measurements with explicit targets on an isolated rig:
 
@@ -143,6 +156,7 @@ Earlier automatic-attention measurements with explicit targets on an isolated ri
 | Assuming a bone's local axis is "forward" | Camera uses the bind-pose calibration; automatic attention uses the pivot-to-Aim line |
 | Muzzle lifted at a level camera angle | Preserve the natural skull angle instead of flattening the sloped head-to-nose line |
 | Head points correctly but tilts sideways during turns | Correct the full calibrated camera frame, including up, after articulation |
+| Camera aiming fights a turn-in-place clip | Disable head tracking for the turn, then blend back in from zero gain |
 | Double-counting the neck's turn lead | HeadLook reads the already-articulated pose and corrects it toward the bounded aim |
 | Head snapping when a target appears or leaves | `strength` eases in/out; the aim direction is seeded on first sighting |
 | Remote creatures following the viewer's camera | Only the owner publishes a direction; observers read the character attribute |

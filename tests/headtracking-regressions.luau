@@ -68,12 +68,13 @@ local function fixture(cameraTracking)
 		Bones = { "Neck", "Head" }, Weights = { 0.4, 0.6 }, Aim = "Nose",
 		MaxYaw = 55, MaxPitch = 35, Response = 6, CameraTracking = cameraTracking,
 	}, writer)
-	local function step(d, dt, suppressed, lead, target)
+	local function step(d, dt, suppressed, lead, target, disabled)
 		writer:BeginFrame()
 		if lead then writer:Add(neck, CFrame.Angles(0, lead, 0)) end
 		look:Update({
 			Facing = root.CFrame.LookVector, Up = root.CFrame.UpVector,
 			Direction = d, Target = target, Suppressed = suppressed,
+			Disabled = disabled,
 		}, dt)
 		writer:EndFrame()
 		return (nose.TransformedWorldCFrame.Position - head.TransformedWorldCFrame.Position).Unit
@@ -101,6 +102,29 @@ for _, fps in { 30, 60, 144 } do
 	end
 end
 check(players.sweeps == 0, "camera tracking never selects a nearby creature instead")
+
+-- Turns must get the whole head pose immediately, including unkeyed bones
+-- still holding the previous camera write. Keep the neck's other layer intact.
+for _, fps in { 30, 60, 144 } do
+	local look, step, _, neck, head = fixture(true)
+	for _ = 1, fps * 3 do step(direction(45, 25), 1 / fps) end
+	for frame = 1, fps do
+		local lead = math.rad(20) * math.sin(frame / fps)
+		step(direction(-45, -25), 1 / fps, false, lead, nil, true)
+		check(head.Transform == CFrame.identity, "turn immediately removes camera offsets from unkeyed head")
+		check(neck.Transform == CFrame.Angles(0, lead, 0), "turn keeps the neck's articulation pose")
+		check(look:GetDebug().Gain == 0 and not look:GetDebug().HasTarget, "tracking stays disabled for the entire turn")
+	end
+	local pose = CFrame.Angles(0.2, -0.1, 0.15)
+	head.Transform = pose
+	step(nil, 1 / fps, true, nil, nil, true)
+	check(head.Transform == pose, "replicated pause preserves the turn clip's authored head pose")
+	step(direction(-30, -10), 1 / fps)
+	check(look:GetDebug().Gain > 0 and look:GetDebug().Gain < 0.15, "tracking blends back in after turn cancellation or completion")
+	check(look.dir:Dot(direction(-30, -10)) > 0.99999, "resuming uses the current camera rather than pre-turn aim")
+	for _ = 1, fps * 3 do step(direction(-30, -10), 1 / fps) end
+	check(look:GetDebug().Gain > 0.999, "head tracking fully resumes after the turn")
+end
 
 do
 	local look, step, root = fixture(true)

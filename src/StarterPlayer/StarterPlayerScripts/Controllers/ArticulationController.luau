@@ -271,11 +271,15 @@ function ArticulationController:KnitStart()
 				}, dt)
 			end
 			if entry.headLook then
+				local direction = if entry.headLook.cameraTracking then char:GetAttribute(HeadLook.DIRECTION_ATTRIBUTE) else nil
 				entry.headLook:Update({
 					Facing = look,
 					Up = up,
-					Direction = if entry.headLook.cameraTracking then char:GetAttribute(HeadLook.DIRECTION_ATTRIBUTE) else nil,
+					Direction = direction,
 					Suppressed = suppressed or entry.humanoid.Health <= 0,
+					-- The owner clears its direction during turns in place.
+					-- Release immediately here too; resume from the next aim.
+					Disabled = entry.headLook.cameraTracking and direction == nil,
 				}, dt)
 			end
 			entry.writer:EndFrame()

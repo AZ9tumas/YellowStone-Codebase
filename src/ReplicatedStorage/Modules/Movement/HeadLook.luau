@@ -71,6 +71,7 @@ export type Signals = {
 	Target: Vector3?, -- world point; omit to self-acquire when CameraTracking is off
 	Direction: Vector3?, -- world look direction; takes precedence over Target
 	Suppressed: boolean?, -- resting / frozen / far away: eases out and lets go
+	Disabled: boolean?, -- turn in place: release immediately, blend back in afterward
 }
 
 export type Debug = {
@@ -243,6 +244,18 @@ end
 -- ===== per-frame =============================================================
 
 function HeadLook:Update(signals: Signals, dt: number)
+	if signals.Disabled then
+		-- Even the normal fade would fight most of a short turn clip. Stop
+		-- writing now; the shared writer releases our old offsets while
+		-- preserving this frame's animation and body-articulation pose.
+		self.dir = nil
+		self.strength = 0
+		self.yaw, self.pitch = 0, 0
+		self.hasTarget = false
+		self.acquired = nil
+		self.clock = math.huge
+		return
+	end
 	local up, facing = signals.Up, signals.Facing
 	if up.Magnitude < EPS or facing.Magnitude < EPS or up.X ~= up.X or facing.X ~= facing.X then
 		return
