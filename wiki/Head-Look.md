@@ -34,22 +34,32 @@ actions, death, or when no camera direction is available. The smoothed aim
 is re-clamped against the current body orientation so a sharp body turn
 cannot leave the head pointing beyond its limits.
 
-## 2. Sign safety
+The camera owns the final skull orientation, including roll. The neck still
+leads into movement, but its turn pose cannot tilt the final camera aim.
+As the body catches up to the camera heading, the head's angle relative to
+the body naturally decreases; that is expected, not tracking switching off.
 
-The only rotation this layer performs is *"swing direction A onto direction B
-about A × B"* — the same primitive Leg IK's hip uses, and the one behaviour
-measured directly on the rig. Nothing here assumes which local axis of a bone
-points forward, so there are no per-rig axis constants.
+## 2. Neutral-pose calibration
 
-* The **aim direction** is read from the pivot bone to an `Aim` bone further
-  down the skull (the wolf uses `Nose`). Whatever the rig's bone axes are, the
-  line between two joints is unambiguous.
-* The **target direction** is clamped inside the yaw/pitch cone by
-  *rebuilding* it from the body basis (`forward`, `right`, `up`), not by
-  rotating — so the clamp cannot flip a sign either.
+Camera mode derives a look frame from the head's **unanimated bind pose**
+relative to `HumanoidRootPart`. A level camera facing forward therefore
+preserves the rig's natural skull angle, without assuming a local bone axis
+points forward. `WorldCFrame` excludes bone animation transforms, so starting
+the solver during an animation does not bake that animation into calibration.
 
-Splitting the swing across several bones by weight is **exact for the
-direction**: rotations about a common axis add, so 0.4 on the neck plus 0.6 on
+The wolf's head-to-nose line slopes down about **31°** in its bind pose.
+Treating that line as its gaze direction used to lift the muzzle even with
+a level camera. Camera mode now uses the calibrated frame, correcting both
+forward and up after the turn layer. This also prevents sideways roll that
+a direction-only correction leaves unconstrained.
+
+Automatic attention retains its original behavior: swing the line from the
+head joint to `Aim` toward the target. Both modes clamp the desired direction
+against the body basis and share the resulting world-axis rotation across
+the configured neck/head bones.
+
+Splitting the correction by weight is **exact for the orientation**:
+rotations about a common axis add, so 0.4 on the neck plus 0.6 on
 the head aims exactly where 1.0 on the head would, spread over a nicer curve.
 It does move the head's origin slightly, so a very close target is aimed at a
 little loosely — irrelevant at the ranges this runs at.
@@ -91,7 +101,7 @@ onto whatever the animation is doing.
     ["CameraTracking"] = true,    -- false restores nearby-creature attention
     ["Bones"] = { "Neck.002", "Head" },
     ["Weights"] = { 0.4, 0.6 },   -- head carries more than the neck
-    ["Aim"] = "Nose",             -- marks "forward" without assuming a bone axis
+    ["Aim"] = "Nose",             -- aim marker for automatic attention
     ["MaxYaw"] = 55,              -- deg off the body's facing
     ["MaxPitch"] = 35,
     ["Response"] = 6,             -- 1/s, aim slew rate
@@ -101,17 +111,23 @@ onto whatever the animation is doing.
 ```
 
 `Bones` is the chain that shares the swing, neck → head. `Aim` is only ever
-**read**, never written, so it may well be a bone another layer owns.
+**read**, never written, so it may well be a bone another layer owns. Camera
+mode uses the last bone's calibrated orientation instead of the `Aim` line.
+Its yaw/pitch limits describe gaze relative to the body's facing and the
+neutral skull pose; they do not force the head-to-nose line to be horizontal.
 
 ## 6. Validation
 
 Run `lune run tests/headtracking-regressions.luau` for local regression checks
 of camera yaw/pitch, both bones sharing the aim, body-relative limits, smooth
 reversals, suppression, automatic attention and the server's input handling.
-These use a small hierarchical rig and fake network signals; multiplayer
-visual verification still requires a Studio play session.
+These use hierarchical mock rigs, including captured wolf bind geometry in
+`tests/fixtures/wolf-head-rest.luau`, and fake network signals. The wolf cases
+check its neutral skull angle, roll, animated neck turn lead, body turns on
+slopes, intermittent animation writes, suppression and reacquisition at
+30/60/144 FPS. Visual verification still requires a Studio play session.
 
-Earlier measurements with explicit targets on an isolated rig:
+Earlier automatic-attention measurements with explicit targets on an isolated rig:
 
 | Asked | Result |
 |---|---|
@@ -124,7 +140,9 @@ Earlier measurements with explicit targets on an isolated rig:
 
 | Trap | Guard |
 |---|---|
-| Assuming a bone's local axis is "forward" | Aim is a line between two joints; only swing-onto rotations are used |
+| Assuming a bone's local axis is "forward" | Camera uses the bind-pose calibration; automatic attention uses the pivot-to-Aim line |
+| Muzzle lifted at a level camera angle | Preserve the natural skull angle instead of flattening the sloped head-to-nose line |
+| Head points correctly but tilts sideways during turns | Correct the full calibrated camera frame, including up, after articulation |
 | Double-counting the neck's turn lead | HeadLook reads the already-articulated pose and corrects it toward the bounded aim |
 | Head snapping when a target appears or leaves | `strength` eases in/out; the aim direction is seeded on first sighting |
 | Remote creatures following the viewer's camera | Only the owner publishes a direction; observers read the character attribute |

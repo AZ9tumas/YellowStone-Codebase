@@ -40,6 +40,9 @@ local function angles(d)
 end
 
 local boneMeta = { __index = function(bone, key)
+	if key == "WorldCFrame" then
+		return (bone.Parent.WorldCFrame or bone.Parent.CFrame) * bone.CFrame
+	end
 	if key == "TransformedWorldCFrame" then
 		local parentFrame = bone.Parent.TransformedWorldCFrame or bone.Parent.CFrame
 		return parentFrame * bone.CFrame * bone.Transform
@@ -147,6 +150,99 @@ do
 	local scriptedLook, scriptedStep = fixture(true)
 	scriptedStep(nil, 1 / 60, false, nil, direction(20, 0) * 30)
 	check(scriptedLook:GetDebug().HasTarget, "explicit world targets remain supported")
+end
+
+-- The imported wolf's nose is below its head joint. Pointing that joint-to-
+-- joint line at a level camera incorrectly lifts the skull by about 31 deg.
+local wolfRest = require("./fixtures/wolf-head-rest")
+local function wolfFixture(animatedAtSpawn)
+	local root = { CFrame = CFrame.identity }
+	local parts, descendants = { Root = root }, {}
+	for _, row in wolfRest do
+		local joint = bone(row.name, parts[row.parent], CFrame.new(table.unpack(row.frame)))
+		parts[row.name] = joint
+		table.insert(descendants, joint)
+	end
+	local character = { Parent = true }
+	function character:GetDescendants() return descendants end
+	function character:FindFirstChild(name) return if name == "HumanoidRootPart" then root else nil end
+	local neck1, neck2, head, nose = parts["Neck.001"], parts["Neck.002"], parts.Head, parts.Nose
+	local restHead = head.WorldCFrame.Rotation
+	if animatedAtSpawn then head.Transform = CFrame.Angles(0.2, 0.1, -0.15) end
+	local writer = writerModule.new()
+	local look = headModule.new(character, {
+		Bones = { "Neck.002", "Head" }, Weights = { 0.4, 0.6 }, Aim = "Nose",
+		MaxYaw = 55, MaxPitch = 35, Response = 6, CameraTracking = true,
+	}, writer)
+	local function step(d, dt, lead, animate, suppressed)
+		-- Simulate a clip keyframing these bones before PreSimulation. Other
+		-- frames leave the previous write alone, as throttled/unkeyed bones do.
+		if animate then
+			neck1.Transform = CFrame.Angles(0.1, -0.08, 0.15)
+			head.Transform = CFrame.Angles(-0.12, 0.1, -0.2)
+		end
+		writer:BeginFrame()
+		for i, joint in { neck1, neck2 } do
+			writer:Prepare(joint)
+			local axis = joint.TransformedWorldCFrame:VectorToObjectSpace(root.CFrame.UpVector)
+			writer:Add(joint, CFrame.fromAxisAngle(axis, (lead or 0) * (if i == 1 then 0.45 else 0.55)))
+		end
+		look:Update({ Facing = root.CFrame.LookVector, Up = root.CFrame.UpVector, Direction = d, Suppressed = suppressed }, dt)
+		writer:EndFrame()
+		return head.TransformedWorldCFrame.Rotation * restHead:Inverse()
+	end
+	return look, step, root, head, nose, restHead
+end
+
+local function rotationError(a, b)
+	local _, angle = (a:Inverse() * b):ToAxisAngle()
+	return math.deg(math.min(math.abs(angle), math.abs(2 * math.pi - angle)))
+end
+
+local function lookFrame(d, up)
+	local right = d:Cross(up or Vector3.yAxis).Unit
+	return CFrame.fromMatrix(Vector3.zero, right, right:Cross(d), -d)
+end
+
+for _, fps in { 30, 60, 144 } do
+	do
+		local _, step, _, head, nose, rest = wolfFixture()
+		for _ = 1, fps * 3 do step(direction(0, 0), 1 / fps) end
+		check(rotationError(head.TransformedWorldCFrame.Rotation, rest) < 0.1,
+			`level camera preserves the wolf's neutral skull pose at {fps} FPS`)
+		local _, nosePitch = angles((nose.TransformedWorldCFrame.Position - head.TransformedWorldCFrame.Position).Unit)
+		check(nosePitch < -30 and nosePitch > -32, "neutral wolf retains its naturally downward head-to-nose line")
+	end
+	for _, requested in { { 40, 20 }, { -40, -20 }, { 120, 70 }, { -120, -70 }, { 0, 0 } } do
+		local look, step, root = wolfFixture(true)
+		local d = direction(requested[1], requested[2])
+		local actual
+		for _ = 1, fps * 3 do actual = step(d, 1 / fps, math.rad(35), true) end
+		local expected = lookFrame(direction(math.clamp(requested[1], -55, 55), math.clamp(requested[2], -35, 35)))
+		check(rotationError(actual, expected) < 0.1, `wolf aims without roll despite animated/turning neck at {fps} FPS`)
+		for frame = 1, fps * 3 do
+			local t = frame / fps
+			root.CFrame = CFrame.Angles(math.rad(20), t * 2, math.rad(15))
+			actual = step(d, 1 / fps, math.rad(35) * math.sin(t * 4), frame % 2 == 0)
+			expected = lookFrame(look.dir, root.CFrame.UpVector)
+			check(rotationError(actual, expected) < 0.1, "body turns and clip writes cannot override the calibrated camera pose")
+			local yaw, pitch = angles(root.CFrame:VectorToObjectSpace(actual.LookVector))
+			check(math.abs(yaw) <= 55.01 and math.abs(pitch) <= 35.01, "actual wolf pose stays inside yaw/pitch limits on slopes")
+		end
+	end
+	do
+		local _, step, root, head, _, rest = wolfFixture(true)
+		for _ = 1, fps * 3 do step(direction(50, 30), 1 / fps, math.rad(35), true) end
+		for _ = 1, fps * 3 do step(nil, 1 / fps, 0, true, true) end
+		check(rotationError(head.Transform, CFrame.Angles(-0.12, 0.1, -0.2)) < 0.1,
+			"wolf suppression returns the head to its current animated pose")
+		local actual
+		for _ = 1, fps * 3 do actual = step(direction(-40, -20), 1 / fps, math.rad(-35), true) end
+		check(rotationError(actual, lookFrame(direction(-40, -20))) < 0.1,
+			"camera tracking reacquires cleanly after an action releases the head")
+		check(root.CFrame == CFrame.identity and head.WorldCFrame.Rotation == rest,
+			"camera correction leaves root and bind geometry unchanged")
+	end
 end
 
 for _, invalid in { false, "forward", {}, Vector3.zero, Vector3.new(0 / 0, 0, 1), Vector3.new(0, math.huge, 1) } do

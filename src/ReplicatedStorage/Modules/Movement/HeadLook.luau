@@ -11,19 +11,16 @@
 	TURN (where the creature is steering), this one corrects the resulting pose
 	toward a look direction or target. Both use the shared BoneWriter.
 
-	Sign safety: the only rotation this performs is "swing direction A onto
-	direction B about A x B", the same primitive LegIK's hip uses and the one
-	behaviour measured directly on the rig. Nothing here assumes which local
-	axis of a bone points forward, so it needs no per-rig axis constants.
-	  * The aim direction is read from the pivot bone to an `Aim` bone further
-	    down the skull (the wolf uses "Nose") — whatever the rig's bone axes
-	    are, the line between two joints is unambiguous.
-	  * The target direction is clamped inside a yaw/pitch cone by REBUILDING
-	    it from the body basis, not by rotating, so the clamp cannot flip a
-	    sign either.
+	Camera aiming calibrates a look frame from the head's unanimated bind
+	pose and the root. A level forward camera then preserves the natural
+	skull angle: the head-to-nose line is NOT necessarily horizontal (it
+	slopes down about 31 degrees on the wolf). Correcting the whole frame,
+	including its up axis, also removes unwanted roll from the turning pose.
+	Automatic attention keeps its original pivot-to-Aim direction solver.
+	Neither mode assumes a particular local bone axis points forward.
 
-	Splitting the swing across several bones by weight is exact for the
-	direction: rotations about a common axis add, so 0.4 on the neck plus 0.6
+	Splitting the correction across several bones by weight is exact for the
+	orientation: rotations about a common axis add, so 0.4 on the neck plus 0.6
 	on the head aims exactly where 1.0 on the head would, spread over a nicer
 	curve. It does move the head's origin slightly, so a very close target is
 	aimed at a little loosely — irrelevant at the ranges this runs at.
@@ -58,7 +55,7 @@ HeadLook.CHANGE_COS = math.cos(math.rad(0.5)) -- ignore sub-degree camera jitter
 
 export type Config = {
 	Bones: { string }, -- neck..head, in that order; they share the swing
-	Aim: string, -- bone further down the skull that marks "forward"
+	Aim: string, -- bone further down the skull, used by automatic attention
 	Weights: { number }?, -- share of the swing per bone; omitted = even split
 	MaxYaw: number, -- deg from the body's facing
 	MaxPitch: number, -- deg
@@ -91,6 +88,7 @@ export type HeadLook = typeof(setmetatable(
 		weights: { number },
 		pivot: Bone,
 		aim: Bone,
+		headToLook: CFrame?, -- camera look frame in the head's unanimated local axes
 		maxYaw: number,
 		maxPitch: number,
 		response: number,
@@ -178,6 +176,14 @@ function HeadLook.new(character: Model, config: Config, writer: BoneWriter.BoneW
 	self.maxPitch = math.rad(config.MaxPitch)
 	self.response = config.Response or DEF_RESPONSE
 	self.cameraTracking = config.CameraTracking == true
+	self.headToLook = nil
+	if self.cameraTracking then
+		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		assert(root, "HeadLook: camera tracking requires HumanoidRootPart")
+		-- WorldCFrame excludes Bone.Transform, so joining mid-animation or
+		-- streaming in while turning cannot bake that pose into calibration.
+		self.headToLook = self.pivot.WorldCFrame.Rotation:Inverse() * root.CFrame.Rotation
+	end
 	self.radius = config.Radius or DEF_RADIUS
 	self.cosCone = math.cos(math.rad(config.Cone or DEF_CONE))
 	self.dir = nil
@@ -262,11 +268,6 @@ function HeadLook:Update(signals: Signals, dt: number)
 	end
 
 	local pivotPos = self.pivot.TransformedWorldCFrame.Position
-	local aimDir = self.aim.TransformedWorldCFrame.Position - pivotPos
-	if aimDir.Magnitude < EPS then
-		return
-	end
-	aimDir = aimDir.Unit
 
 	local direction = HeadLook.UnitDirection(signals.Direction)
 	local target = signals.Target
@@ -314,15 +315,38 @@ function HeadLook:Update(signals: Signals, dt: number)
 		return -- nothing to aim at: EndFrame hands the bones back
 	end
 
-	local axis = aimDir:Cross(dir)
-	if axis.Magnitude < EPS then
-		return
+	local axis, angle
+	if self.headToLook then
+		-- Read AFTER articulation and the animation have posed the neck. A
+		-- direction-only swing leaves roll unconstrained and can look tilted
+		-- even when its nose vector is mathematically pointing at the target.
+		local current = self.pivot.TransformedWorldCFrame.Rotation * self.headToLook
+		-- Build right from yaw, so even a configured 90-degree pitch has a
+		-- defined roll instead of a degenerate look-at up vector.
+		local yaw = math.atan2(dir:Dot(right), dir:Dot(f))
+		local lookRight = right * math.cos(yaw) - f * math.sin(yaw)
+		local wanted = CFrame.fromMatrix(Vector3.zero, lookRight, lookRight:Cross(dir), -dir)
+		axis, angle = (wanted * current:Inverse()):ToAxisAngle()
+		if angle > math.pi then
+			axis, angle = -axis, 2 * math.pi - angle
+		end
+	else
+		local aimDir = self.aim.TransformedWorldCFrame.Position - pivotPos
+		if aimDir.Magnitude < EPS then
+			return
+		end
+		aimDir = aimDir.Unit
+		axis = aimDir:Cross(dir)
+		if axis.Magnitude < EPS then
+			return
+		end
+		axis = axis.Unit
+		angle = math.acos(math.clamp(aimDir:Dot(dir), -1, 1))
 	end
-	local angle = math.acos(math.clamp(aimDir:Dot(dir), -1, 1)) * self.strength
+	angle *= self.strength
 	if angle < ANGLE_EPS then
 		return
 	end
-	axis = axis.Unit
 	for i, bone in ipairs(self.bones) do
 		local share = angle * self.weights[i]
 		if share > ANGLE_EPS then
